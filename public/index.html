@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chargeback Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+<div id="listView">
+  <header class="top">
+    <h1>Chargebacks</h1>
+    <div class="controls">
+      <select id="period" class="field-sm" aria-label="Period"></select>
+      <span id="customRange" class="range" hidden>
+        <input type="date" id="rangeFrom" class="field-sm" aria-label="From date">
+        <span class="muted">to</span>
+        <input type="date" id="rangeTo" class="field-sm" aria-label="To date">
+      </span>
+      <select id="currency" class="field-sm" aria-label="Currency"></select>
+      <button id="exportBtn" class="btn" hidden>Export CSV</button>
+      <button id="newBtn" class="btn primary">Add case</button>
+    </div>
+  </header>
+
+  <section id="statsArea" aria-label="Statistics"></section>
+  <div id="alertArea"></div>
+
+  <section aria-label="Cases">
+    <div class="list-head">
+      <h2 id="listTitle">Cases</h2>
+      <div class="filters">
+        <input id="search" type="search" placeholder="Search customer, order, case no." aria-label="Search cases">
+        <select id="stageFilter" class="field-sm" aria-label="Filter by stage"></select>
+        <select id="statusFilter" class="field-sm" aria-label="Filter by status"></select>
+      </div>
+    </div>
+    <div class="tablewrap" id="tableArea"></div>
+  </section>
+</div>
+
+<main id="detailView" class="detail" hidden>
+  <button class="btn back" id="backBtn" type="button">&larr; Back to cases</button>
+  <div id="detailBody"></div>
+</main>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
