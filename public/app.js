@@ -162,7 +162,7 @@
     ["delivery", "Proof of delivery or tracking tied to the billing address"],
     ["comms", "Customer communication logs"]
   ];
-  var PRODUCTS = ["Net Price", "SF", "Tips", "Travel Protection", "SF+Tips+TP", "SF+TP", "Full-cost"];
+  var PRODUCTS = ["Ticket", "Protection", "Baggage", "Seat", "Upgrade", "Insurance", "Other"];
   var CURRENCIES = ["USD", "EUR", "GBP", "MDL", "RON"];
   // Case documents. The assets store accepts only these file types.
   var DOC_EXT = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
@@ -170,7 +170,7 @@
   var DOC_ACCEPT = Object.keys(DOC_EXT).map(function (e) { return "." + e; }).join(",");
   function docExt(name) { var m = /\.([a-z0-9]+)$/i.exec(name || ""); return m ? m[1].toLowerCase() : ""; }
   function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
-  var DOC_ERR = { too_large: "is over the 20 MB limit", unsupported_type: "is not a supported file type", quota_or_state: "could not be stored: storage is full", not_granted: "could not be uploaded: no permission", rate_limited: "was rate limited, try again in a moment" };
+  var DOC_ERR = { too_large: "is over the 50 MB limit", unsupported_type: "is not a supported file type", quota_or_state: "could not be stored: storage is full", not_granted: "could not be uploaded: no permission", rate_limited: "was rate limited, try again in a moment" };
 
   var state = {
     cases: [],
@@ -340,64 +340,50 @@
   function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
+  function api(method, path, body) {
+    var opt = { method: method, headers: {} };
+    if (body !== undefined) { opt.headers["content-type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch(path, opt).then(function (r) {
+      if (!r.ok) throw new Error("Server answered " + r.status);
+      return r.json();
+    });
+  }
   function saveCase(c) {
     c.updatedAt = Date.now();
-    if (state.db) {
-      return state.db.collection("cases").doc(c.id).set(c).catch(function (e) {
-        toast("Could not save: " + (e && e.message ? e.message : "unknown error"));
-        throw e;
-      });
-    }
-    var i = state.cases.findIndex(function (x) { return x.id === c.id; });
-    if (i >= 0) state.cases[i] = c; else state.cases.push(c);
-    lsSet(LS_CASES, state.cases);
-    renderAll();
-    return Promise.resolve();
+    return api("PUT", "/api/cases/" + encodeURIComponent(c.id), c).then(function () {
+      var i = state.cases.findIndex(function (x) { return x.id === c.id; });
+      if (i >= 0) state.cases[i] = norm(c); else state.cases.push(norm(c));
+      renderAll();
+    }, function (e) { toast("Could not save: " + e.message); throw e; });
   }
   function removeCase(id) {
-    if (state.db) {
-      return state.db.collection("cases").doc(id).delete().catch(function (e) {
-        toast("Could not delete: " + (e && e.message ? e.message : "unknown error"));
-        throw e;
-      });
-    }
-    state.cases = state.cases.filter(function (x) { return x.id !== id; });
-    lsSet(LS_CASES, state.cases);
-    renderAll();
-    return Promise.resolve();
+    return api("DELETE", "/api/cases/" + encodeURIComponent(id)).then(function () {
+      state.cases = state.cases.filter(function (x) { return x.id !== id; });
+      renderAll();
+    }, function (e) { toast("Could not delete: " + e.message); throw e; });
   }
-
+  function loadCases(first) {
+    return api("GET", "/api/cases").then(function (list) {
+      state.cases = list.map(norm); state.loaded = true;
+      if (first) { renderAll(); route(); } else if (state.openId == null && $("detailView").hidden) renderAll();
+    }, function () { if (first) { state.loaded = true; renderAll(); route(); toast("Could not load cases. Sign in again or reload."); } });
+  }
   function initStorage() {
-    // Show local data immediately; upgrade to the shared database when available.
-    var local = lsGet(LS_CASES);
-    if (Array.isArray(local)) state.cases = local.map(norm);
-    state.loaded = true;
-    renderAll();
-    route();
-
-    if (!window.claude || !window.claude.use) return;
-    Promise.all([window.claude.use("db"), window.claude.use("user")]).then(function (r) {
-      var db = r[0], user = r[1];
-      if (!db) return;
-      var go = function (canWrite) {
-        state.db = db;
-        state.canWrite = canWrite !== false;
-        db.collection("cases").onSnapshot(function (snap) {
-          state.cases = snap.docs.map(function (d) { var o = d.data() || {}; o.id = o.id || d.id; return norm(o); });
-          state.loaded = true;
-          renderAll();
-          if (state.openId == null && /^#(case\/|new)/.test(location.hash)) route();
-        }, function () { toast("Live sync stopped. Reload the page to reconnect."); });
-        renderAll();
-      };
-      if (user && user.can) user.can("data.write").then(go, function () { go(true); });
-      else go(true);
-    }).catch(function () {});
-
-    window.claude.use("assets").then(function (a) { if (a) { state.assets = a; } }).catch(function () {});
-    window.claude.use("downloads").then(function (dl) {
-      if (dl) { state.downloads = dl; $("exportBtn").hidden = false; }
-    }).catch(function () {});
+    state.assets = {
+      upload: function (f, o) {
+        return fetch("/api/files", { method: "POST", headers: { "x-filename": encodeURIComponent(f.name), "content-type": (o && o.type) || "application/octet-stream" }, body: f })
+          .then(function (r) { return r.json().then(function (j) { if (!r.ok) { var e = new Error(j.error || "upload failed"); e.code = j.code; throw e; } return j; }); });
+      },
+      delete: function (id) { return fetch("/api/files/" + id, { method: "DELETE" }); }
+    };
+    state.downloads = { save: function (o) {
+      var a = document.createElement("a"), u = URL.createObjectURL(new Blob([o.data]));
+      a.href = u; a.download = o.filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(u); }, 2000); return Promise.resolve();
+    } };
+    $("exportBtn").hidden = false;
+    loadCases(true);
+    setInterval(function () { if (!document.hidden) loadCases(false); }, 30000);
   }
 
   /* ---------- stats ---------- */
@@ -859,8 +845,11 @@
   /* ---------- document viewer ---------- */
   var viewTok = 0;
   function downloadDoc(d) {
+    var a = document.createElement("a"); a.href = "/api/files/" + d.id + "?download=1"; document.body.appendChild(a); a.click(); a.remove();
+  }
+  function downloadDocOld(d) {
     if (!state.downloads) { toast("Downloads are not available in this view."); return; }
-    fetch("/_blob/" + d.id).then(function (r) {
+    fetch("/api/files/" + d.id).then(function (r) {
       if (!r.ok) throw new Error("missing");
       return r.blob();
     }).then(function (blob) {
@@ -878,7 +867,7 @@
   function viewerKey(e) { if (e.key === "Escape") closeViewer(); }
   function openViewer(d) {
     closeViewer();
-    var tok = ++viewTok, ext = docExt(d.name), url = "/_blob/" + d.id;
+    var tok = ++viewTok, ext = docExt(d.name), url = "/api/files/" + d.id;
     var v = document.createElement("div");
     v.id = "docViewer"; v.className = "viewer"; v.setAttribute("role", "dialog"); v.setAttribute("aria-label", d.name);
     v.innerHTML = '<div class="vbar"><strong class="vname"></strong><span class="spacer"></span>' +
@@ -923,6 +912,8 @@
       im.onerror = fail; im.src = url;
     } else if (/^(mp4|webm)$/.test(ext)) {
       body.innerHTML = '<video class="vimg" controls src="' + esc(url) + '"></video>';
+    } else if (!/^(txt|md|csv|json)$/.test(ext)) {
+      body.innerHTML = '<p class="muted">No preview for this file type. Use Download.</p>';
     } else {
       fetch(url).then(function (r) { if (!r.ok) throw 0; return r.text(); }).then(function (t) {
         if (tok !== viewTok) return;
@@ -975,7 +966,7 @@
           }).join("") + '<span class="hint">Which documents apply depends on the reason code. Send them within the 20-day window.</span></div></section>' +
         '<section class="sec" id="docSec"><h4>Documents <span class="muted" id="docCount"></span></h4>' +
           (ro ? "" : '<div class="docadd">' +
-            '<input type="file" id="f_docFile" multiple accept="' + DOC_ACCEPT + '" hidden>' +
+            '<input type="file" id="f_docFile" multiple hidden>' +
             '<button class="btn" type="button" id="docBtn">Upload files</button></div>') +
           '<ul class="doclist" id="docList"></ul><span class="hint" id="docHint"></span></section>' +
         '<section class="sec"><h4>Notes</h4><label class="f"><span class="sr">Notes</span><textarea id="f_notes"' + dis + ">" + esc(c.notes) + "</textarea></label></section>" +
@@ -1127,7 +1118,7 @@
         b.onclick = function () { downloadDoc(docs[+b.getAttribute("data-dl")]); };
       });
       if ($("docBtn")) {
-        $("docHint").textContent = state.assets !== false ? "PDF, images, video, CSV, text, Markdown or JSON, up to 20 MB each. Word, Excel and email files are not supported: save them as PDF first."
+        $("docHint").textContent = state.assets !== false ? "Any file type, up to 50 MB each."
           : "Document storage is not available in this view. Only people who can edit the published page can upload.";
       }
     }
@@ -1146,9 +1137,7 @@
         var chain = Promise.resolve();
         files.forEach(function (f) {
           chain = chain.then(function () {
-            var type = DOC_EXT[docExt(f.name)];
-            if (!type) { toast(f.name + " is not a supported file type."); return; }
-            return state.assets.upload(f, { type: type }).then(function (r) {
+            return state.assets.upload(f, { type: f.type || "application/octet-stream" }).then(function (r) {
               addedIds.push(r.id);
               docs.push({ id: r.id, name: f.name, size: r.sizeBytes, type: r.contentType, at: todayStr() });
               renderDocs();
