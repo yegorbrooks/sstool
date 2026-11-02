@@ -162,7 +162,7 @@
     ["delivery", "Proof of delivery or tracking tied to the billing address"],
     ["comms", "Customer communication logs"]
   ];
-  var PRODUCTS = ["Ticket", "Protection", "Baggage", "Seat", "Upgrade", "Insurance", "Other"];
+  var PRODUCTS = ["Ticket Cost", "Ticket Protection", "Service Fee", "Tips", "Service Fee + Ticket Protection + Tips", "Service Fee + Tips", "Service Fee + Ticket Protection", "Ticket Protection + Tips", "Full Cost"];
   var CURRENCIES = ["USD", "EUR", "GBP", "MDL", "RON"];
   // Case documents. The assets store accepts only these file types.
   var DOC_EXT = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
@@ -820,6 +820,11 @@
       return '<option value="' + esc(x) + '"' + (x === sel ? " selected" : "") + ">" + esc(x) + "</option>";
     }).join("");
   }
+  function productOpts(sel) {
+  var html = opts(PRODUCTS, sel);
+  if (sel && PRODUCTS.indexOf(sel) < 0) html = '<option value="' + esc(sel) + '" selected>' + esc(sel) + "</option>" + html;
+  return html;
+}
   function stageOpts(sel, network) {
     var list = stagesFor(network).slice();
     if (list.indexOf(sel) < 0) list.unshift(sel);   // keep a stage saved earlier
@@ -933,7 +938,7 @@
   function openDialog(id) {
     var c = id ? state.cases.filter(function (x) { return x.id === id; })[0] : null;
     var isNew = !c;
-    c = c || { caseNo: nextCaseNo(), customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket", travelFrom: "", travelTo: "", amount: "", fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", evidence: {}, docs: [] };
+    c = c || { caseNo: nextCaseNo(), customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", evidence: {}, docs: [] };
     var ro = !state.canWrite;
     var dis = ro ? " disabled" : "";
     $("detailBody").innerHTML =
@@ -944,7 +949,7 @@
         '<section class="sec"><h4>Booking</h4><div class="grid g3">' +
           '<label class="f">PNR<input id="f_pnr" class="pnr-in" maxlength="12" autocapitalize="characters" autocomplete="off" value="' + esc(c.pnr) + '"' + dis + "></label>" +
           '<label class="f">Sale ID<input id="f_saleId" inputmode="numeric" autocomplete="off" placeholder="12345" value="' + esc(c.saleId) + '"' + dis + '><span class="hint" id="saleHint"></span></label>' +
-          '<label class="f">Product<select id="f_product"' + dis + '><option value="">Not set</option>' + opts(PRODUCTS, c.product) + "</select></label>" +
+          '<label class="f">Product<select id="f_product"' + dis + '><option value="">Not set</option>' + productOpts(c.product) + "</select></label>" +
           '<label class="f">Travel start<input id="f_travelFrom" type="date" value="' + esc(c.travelFrom) + '"' + dis + "></label>" +
           '<label class="f">Travel end<input id="f_travelTo" type="date" value="' + esc(c.travelTo) + '"' + dis + '><span class="hint">Return date, if any.</span></label>' +
           '<label class="f">Order or transaction ref<input id="f_orderRef" value="' + esc(c.orderRef) + '"' + dis + '><span class="hint" id="refHint"></span></label>' +
