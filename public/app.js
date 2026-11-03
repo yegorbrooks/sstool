@@ -783,13 +783,14 @@
       return '<tr tabindex="0" data-id="' + esc(c.id) + '">' +
         '<td class="pnr">' + esc(c.pnr || "\u2014") + "</td>" +
         "<td>" + (c.saleId ? crmLink(c.saleId) : "\u2014") + "</td>" +
+        "<td>" + esc(c.network || "\u2014") + "</td>" +
         '<td class="num">' + esc(money(num(c.amount))) + "</td>" +
         "<td>" + esc(fmtDate(c.disputeDate)) + "</td>" +
         "<td>" + due + "</td>" +
         "<td>" + esc(fmtRange(c.travelFrom, c.travelTo)) + "</td>" +
         "<td>" + esc(stageLabel(c.stage, c.network)) + (needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
     }).join("");
-    area.innerHTML = "<table><thead><tr><th>PNR</th><th>Sale ID</th>" +
+        area.innerHTML = "<table><thead><tr><th>PNR</th><th>Sale ID</th><th>Network</th>" +
       sortTh("amount", "Amount", "num") + sortTh("disputeDate", "Disputed date") + sortTh("dueDate", "Due date") +
       "<th>Travel date</th><th>Dispute cycle</th></tr></thead><tbody>" + rows + "</tbody></table>";
     Array.prototype.forEach.call(area.querySelectorAll("th button[data-sort]"), function (btn) {
