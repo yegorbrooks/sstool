@@ -1,10 +1,50 @@
 const MAX_FILE = 50 * 1024 * 1024;
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json" } });
 
+/* ---------- Cloudflare Access: verify the signed login token ---------- */
+const b64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+const parse = (s) => JSON.parse(new TextDecoder().decode(b64(s)));
+
+// Returns the signed-in user's email, or null if the request is not from an allowed Access login.
+async function accessUser(req, env) {
+  const token = req.headers.get("cf-access-jwt-assertion");
+  if (!token) return null;
+  try {
+    const [h, p, s] = token.split(".");
+    const header = parse(h), claims = parse(p);
+    if (header.alg !== "RS256") return null;
+    const jwks = await (await fetch(env.TEAM_DOMAIN + "/cdn-cgi/access/certs", { cf: { cacheTtl: 3600, cacheEverything: true } })).json();
+    const jwk = (jwks.keys || []).find((k) => k.kid === header.kid);
+    if (!jwk) return null;
+    const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    const ok = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, b64(s), new TextEncoder().encode(h + "." + p));
+    const aud = [].concat(claims.aud);
+    const email = String(claims.email || "").toLowerCase();
+    const now = Date.now() / 1000;
+    if (!ok) return null;
+    if (claims.iss !== env.TEAM_DOMAIN) return null;
+    if (!aud.includes(env.POLICY_AUD)) return null;
+    if (!(claims.exp > now)) return null;
+    if (claims.nbf && claims.nbf > now + 60) return null;
+    if (!email.endsWith(String(env.ALLOWED_DOMAIN || "").toLowerCase())) return null;
+    return email;
+  } catch (e) {
+    return null;
+  }
+}
+
 export default {
   async fetch(req, env) {
     const p = new URL(req.url).pathname, url = new URL(req.url);
     if (!p.startsWith("/api/")) return env.ASSETS.fetch(req);
+
+    // Every API call needs a valid @flyluxury.com login.
+    // Local development only: set DEV=1 in a .dev.vars file (never in production) to skip the check.
+    if (env.DEV !== "1") {
+      const user = await accessUser(req, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+    }
+
     try {
       if (p === "/api/cases" && req.method === "GET") {
         const { results } = await env.DB.prepare("SELECT data FROM cases").all();
