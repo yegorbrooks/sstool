@@ -15,7 +15,7 @@
   ],
   "vars": {
     "TEAM_DOMAIN": "https://flyluxury.cloudflareaccess.com",
-    "POLICY_AUD": "10f41ebfad182644998233df75780a00db46ec4e0fcf7bb6f26f3d2328019d09",
+    "POLICY_AUD": "c0ab71c4fa581411f577c84207e5f3d96c1bfea2b35157b09365bbdecd92cbf5",
     "ALLOWED_DOMAIN": "@flyluxury.com"
   }
 }
