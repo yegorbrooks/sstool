@@ -163,6 +163,7 @@
     ["comms", "Customer communication logs"]
   ];
   var PRODUCTS = ["Ticket Cost", "Ticket Protection", "Service Fee", "Tips", "Service Fee + Ticket Protection + Tips", "Service Fee + Tips", "Service Fee + Ticket Protection", "Ticket Protection + Tips", "Full Cost"];
+  var SOURCES = ["IPS", "Merlink", "Airline"];
   var CURRENCIES = ["USD", "EUR", "GBP", "MDL", "RON"];
   // Case documents. The assets store accepts only these file types.
   var DOC_EXT = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
@@ -930,7 +931,7 @@
 
   // Fields that must be filled in before a new case can be created.
   var REQUIRED_FIELDS = [
-    ["f_pnr", "PNR"], ["f_saleId", "Sale ID"], ["f_orderRef", "Transaction ref"], ["f_transactionDate", "Transaction date"],
+    ["f_pnr", "PNR"], ["f_saleId", "Sale ID"], ["f_source", "Source"], ["f_orderRef", "Transaction ref"], ["f_transactionDate", "Transaction date"],
     ["f_caseNo", "Case number"], ["f_disputeDate", "Date disputed"], ["f_dueDate", "Respond by"],
     ["f_network", "Card network"], ["f_reason", "Reason"], ["f_amount", "Disputed amount"]
   ];
@@ -950,6 +951,7 @@
           '<label class="f">PNR<input id="f_pnr" class="pnr-in" maxlength="12" autocapitalize="characters" autocomplete="off" value="' + esc(c.pnr) + '"' + dis + "></label>" +
           '<label class="f">Sale ID<input id="f_saleId" inputmode="numeric" autocomplete="off" placeholder="12345" value="' + esc(c.saleId) + '"' + dis + '><span class="hint" id="saleHint"></span></label>' +
           '<label class="f">Product<select id="f_product"' + dis + '><option value="">Not set</option>' + productOpts(c.product) + "</select></label>" +
+          '<label class="f">Source<select id="f_source"' + dis + '><option value="">Select source</option>' + opts(SOURCES, c.source) + "</select></label>" +
           '<label class="f">Travel start<input id="f_travelFrom" type="date" value="' + esc(c.travelFrom) + '"' + dis + "></label>" +
           '<label class="f">Travel end<input id="f_travelTo" type="date" value="' + esc(c.travelTo) + '"' + dis + '><span class="hint">Return date, if any.</span></label>' +
           '<label class="f">Order or transaction ref<input id="f_orderRef" value="' + esc(c.orderRef) + '"' + dis + '><span class="hint" id="refHint"></span></label>' +
@@ -1187,6 +1189,7 @@
         pnr: $("f_pnr").value.trim().toUpperCase(),
         saleId: $("f_saleId").value.trim(),
         product: $("f_product").value,
+        source: $("f_source").value,
         travelFrom: $("f_travelFrom").value,
         travelTo: $("f_travelTo").value,
         orderRef: $("f_orderRef").value.trim(),
