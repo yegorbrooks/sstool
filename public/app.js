@@ -788,11 +788,13 @@
         "<td>" + esc(fmtDate(c.disputeDate)) + "</td>" +
         "<td>" + due + "</td>" +
         "<td>" + esc(fmtRange(c.travelFrom, c.travelTo)) + "</td>" +
-        "<td>" + esc(stageLabel(c.stage, c.network)) + (needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
+         "<td>" + esc(stageLabel(c.stage, c.network)) + "</td>" +
+        '<td><span class="pill ' + statusKind(c.status) + '">' + esc(statusLabel(c.status)) + "</span>" +
+          (needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
     }).join("");
         area.innerHTML = "<table><thead><tr><th>PNR</th><th>Sale ID</th><th>Source</th>" +
       sortTh("amount", "Amount", "num") + sortTh("disputeDate", "Disputed date") + sortTh("dueDate", "Due date") +
-      "<th>Travel date</th><th>Dispute cycle</th></tr></thead><tbody>" + rows + "</tbody></table>";
+            "<th>Travel date</th><th>Dispute cycle</th><th>Status</th></tr></thead><tbody>" + rows + "</tbody></table>";
     Array.prototype.forEach.call(area.querySelectorAll("th button[data-sort]"), function (btn) {
       btn.onclick = function () { setSort(btn.getAttribute("data-sort")); };
     });
