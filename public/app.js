@@ -15,6 +15,10 @@
        Won                     loss recovered, no further debits
        Lost / Accepted         amount stays (or is again) debited
        Arbitration, Lost       amount plus dispute fees debited
+
+     Every case has its own currency. Statistics only add up cases in the
+     currency selected at the top, so amounts in different currencies are
+     never mixed.
   ------------------------------------------------------------------ */
   var STAGES = {
     inquiry: { label: "Inquiry (RFI)" },
@@ -165,6 +169,8 @@
   var PRODUCTS = ["Ticket Cost", "Ticket Protection", "Service Fee", "Tips", "Service Fee + Ticket Protection + Tips", "Service Fee + Tips", "Service Fee + Ticket Protection", "Ticket Protection + Tips", "Full Cost"];
   var SOURCES = ["IPS", "Merlink", "Airline"];
   var CURRENCIES = ["USD", "EUR", "GBP", "MDL", "RON"];
+  // Cases saved before each case had its own currency are treated as this currency.
+  var LEGACY_CURRENCY = "USD";
   // Case documents. The assets store accepts only these file types.
   var DOC_EXT = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
     mp4: "video/mp4", webm: "video/webm", csv: "text/csv", md: "text/markdown", json: "application/json", txt: "text/plain" };
@@ -184,6 +190,8 @@
     status: "all",
     q: "",
     currency: "USD",
+    checkOnly: false,
+    urgentOnly: false,
     canWrite: true,
     db: null,
     assets: null,
@@ -216,10 +224,12 @@
     var p = k.split("-");
     return new Date(+p[0], +p[1] - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
   }
-  function money(n) {
+  // Formats an amount in the given currency (a case's own currency), or the selected one for totals.
+  function money(n, cur) {
+    cur = cur || state.currency;
     try {
-      return new Intl.NumberFormat(undefined, { style: "currency", currency: state.currency }).format(n || 0);
-    } catch (e) { return (n || 0).toFixed(2) + " " + state.currency; }
+      return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(n || 0);
+    } catch (e) { return (n || 0).toFixed(2) + " " + cur; }
   }
   function num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
   function stageLabel(v, network) {
@@ -290,7 +300,7 @@
     return "";
   }
   function explain(c) {
-    var a = money(num(c.amount));
+    var a = money(num(c.amount), c.currency);
     var fee = num(c.fee);
     if (c.network === "Amex") { var ax = amexExplain(c.stage + ":" + c.status, a); if (ax) return ax; }
     switch (c.stage + ":" + c.status) {
@@ -304,9 +314,9 @@
       case "prearb:won": return "The bank accepted our defence. No further debits.";
       case "prearb:lost": return "Pre-arbitration was lost. " + a + " is debited again. Final loss.";
       case "prearb:accepted": return "We accepted pre-arbitration. " + a + " is debited again. Final loss.";
-      case "arb:defended": return "The card brand is deciding. If it rules for the cardholder we are debited " + a + (fee ? " plus " + money(fee) + " in dispute fees." : " plus the dispute fees.") + " No status reminder at this stage: wait for the bank's notice.";
+      case "arb:defended": return "The card brand is deciding. If it rules for the cardholder we are debited " + a + (fee ? " plus " + money(fee, c.currency) + " in dispute fees." : " plus the dispute fees.") + " No status reminder at this stage: wait for the bank's notice.";
       case "arb:won": return "The card brand ruled for the merchant. No further debits.";
-      case "arb:lost": return "The card brand ruled for the cardholder. " + a + (fee ? " plus " + money(fee) + " in dispute fees" : " plus dispute fees") + " debited. Final loss.";
+      case "arb:lost": return "The card brand ruled for the cardholder. " + a + (fee ? " plus " + money(fee, c.currency) + " in dispute fees" : " plus dispute fees") + " debited. Final loss.";
     }
     return "";
   }
@@ -326,6 +336,7 @@
       if (o.feesCharged === undefined) o.feesCharged = legacyLostFee;
     }
     o.feesCharged = !!o.feesCharged;
+    o.currency = o.currency || LEGACY_CURRENCY;
     o.pnr = o.pnr || ""; o.saleId = o.saleId || ""; o.product = o.product || ""; o.travelFrom = o.travelFrom || ""; o.travelTo = o.travelTo || "";
     o.transactionDate = o.transactionDate || ""; o.evidence = (o.evidence && typeof o.evidence === "object") ? o.evidence : {};
     if (!Array.isArray(o.history)) o.history = [];
@@ -340,21 +351,25 @@
   function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
-  function api(method, path, body) {
-    var opt = { method: method, headers: {} };
+  function api(method, path, body, headers) {
+    var opt = { method: method, headers: headers || {} };
     if (body !== undefined) { opt.headers["content-type"] = "application/json"; opt.body = JSON.stringify(body); }
     return fetch(path, opt).then(function (r) {
-      if (!r.ok) throw new Error("Server answered " + r.status);
+      if (!r.ok) { var e = new Error("Server answered " + r.status); e.status = r.status; throw e; }
       return r.json();
     });
   }
+  // Saves a case. The version (_v) it was loaded with goes along, so the server refuses
+  // the save (409) if someone else saved the case in the meantime.
   function saveCase(c) {
     c.updatedAt = Date.now();
-    return api("PUT", "/api/cases/" + encodeURIComponent(c.id), c).then(function () {
+    var ver = c._v != null ? String(c._v) : "new";
+    return api("PUT", "/api/cases/" + encodeURIComponent(c.id), c, { "x-version": ver }).then(function (j) {
+      c._v = j.v;
       var i = state.cases.findIndex(function (x) { return x.id === c.id; });
       if (i >= 0) state.cases[i] = norm(c); else state.cases.push(norm(c));
       renderAll();
-    }, function (e) { toast("Could not save: " + e.message); throw e; });
+    }, function (e) { if (e.status !== 409) toast("Could not save: " + e.message); throw e; });
   }
   function removeCase(id) {
     return api("DELETE", "/api/cases/" + encodeURIComponent(id)).then(function () {
@@ -377,7 +392,7 @@
       delete: function (id) { return fetch("/api/files/" + id, { method: "DELETE" }); }
     };
     state.downloads = { save: function (o) {
-      var a = document.createElement("a"), u = URL.createObjectURL(new Blob([o.data]));
+      var a = document.createElement("a"), u = URL.createObjectURL(new Blob([o.data], { type: o.type || "application/octet-stream" }));
       a.href = u; a.download = o.filename; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(u); }, 2000); return Promise.resolve();
     } };
@@ -461,13 +476,22 @@
   }
 
   function renderStats() {
-    var s = computeStats(state.cases.filter(inPeriod));
-    var inP = state.cases.filter(inPeriod);
+    // Statistics only add up cases in the selected currency; cases in other currencies are counted in a note.
+    var all = state.cases.filter(inPeriod);
+    var inP = all.filter(function (c) { return c.currency === state.currency; });
+    var s = computeStats(inP);
+    var others = {};
+    all.forEach(function (c) { if (c.currency !== state.currency) others[c.currency] = (others[c.currency] || 0) + 1; });
+    var otherKeys = Object.keys(others).sort();
+    var note = otherKeys.length
+      ? '<p class="muted statnote">' + esc("Statistics include " + state.currency + " cases only. Not included: " +
+          otherKeys.map(function (k) { return plural(others[k], "case", "cases") + " in " + k; }).join(", ") + ".") + "</p>"
+      : "";
     var card = '<div class="statcard">' + outcomeDonut(s) +
       '<ul class="clegend olegend statextra">' +
         '<li title="' + esc("Disputes: " + money(s.lostAmt + s.awaiting) + ", Fees: " + money(s.fees)) + '"><span class="cl">Net loss, ' + esc(periodText()) + '</span><span class="cp' + (s.netLoss ? " loss" : "") + '">' + esc(money(s.netLoss)) + "</span></li>" +
         '<li><span class="cl">Credited back, still at risk</span><span class="cp wait">' + esc(money(s.atRisk)) + "</span></li>" +
-      "</ul></div>";
+      "</ul>" + note + "</div>";
     var charts = '<div class="charts">' +
       winCard(s) +
       chartCard("Dispute reasons", inP, function (c) { return c.reason; }) +
@@ -676,12 +700,19 @@
   function needsDecision(c) {
     return c.status === "pending" && c.dueDate;
   }
+  // Pending cases whose decision deadline has passed or is within 7 days.
+  function isUrgent(c) {
+    if (!needsDecision(c)) return false;
+    var d = daysUntil(c.dueDate); return d !== null && d <= 7;
+  }
+  function showSpecial(which) {
+    state.period = "all"; state.stage = "all"; state.status = "all"; state.q = ""; $("search").value = "";
+    state.urgentOnly = which === "urgent"; state.checkOnly = which === "check";
+    renderAll();
+  }
   function renderAlert() {
     var html = "";
-    var urgent = state.cases.filter(function (c) {
-      if (!needsDecision(c)) return false;
-      var d = daysUntil(c.dueDate); return d !== null && d <= 7;
-    });
+    var urgent = state.cases.filter(isUrgent);
     if (urgent.length) {
       var late = urgent.filter(function (c) { return daysUntil(c.dueDate) < 0; }).length;
       var msg = late
@@ -695,12 +726,8 @@
     }
     var area = $("alertArea");
     area.innerHTML = html;
-    if ($("showUrgent")) $("showUrgent").onclick = function () {
-      state.period = "all"; state.stage = "all"; state.status = "pending"; state.q = ""; $("search").value = ""; renderAll();
-    };
-    if ($("showCheck")) $("showCheck").onclick = function () {
-      state.period = "all"; state.stage = "all"; state.status = "all"; state.checkOnly = true; state.q = ""; $("search").value = ""; renderAll();
-    };
+    if ($("showUrgent")) $("showUrgent").onclick = function () { showSpecial("urgent"); };
+    if ($("showCheck")) $("showCheck").onclick = function () { showSpecial("check"); };
   }
 
   function filteredCases() {
@@ -709,6 +736,7 @@
       if (!inPeriod(c)) return false;
       if (state.stage !== "all" && c.stage !== state.stage) return false;
       if (state.checkOnly && !needsStatusCheck(c)) return false;
+      if (state.urgentOnly && !isUrgent(c)) return false;
       if (state.status !== "all" && c.status !== state.status) return false;
       if (q) {
         var hay = [c.caseNo, c.customer, c.pnr, c.saleId, c.product, c.orderRef, c.reason, c.network, c.notes].join(" ").toLowerCase();
@@ -747,7 +775,11 @@
 
   function renderTable() {
     var list = filteredCases();
-    $("listTitle").textContent = (state.checkOnly ? "Cases to check" : "Cases") + " (" + list.length + ")";
+    var special = state.urgentOnly || state.checkOnly;
+    var title = state.urgentOnly ? "Cases needing a decision" : state.checkOnly ? "Cases to check" : "Cases";
+    $("listTitle").innerHTML = esc(title + " (" + list.length + ")") +
+      (special ? ' <button type="button" class="linkbtn clearfilter" id="clearSpecial">Show all cases</button>' : "");
+    if ($("clearSpecial")) $("clearSpecial").onclick = function () { state.urgentOnly = false; state.checkOnly = false; renderTable(); };
     var area = $("tableArea");
     if (!state.cases.length) {
       area.innerHTML = '<div class="empty"><p>No cases yet. Add your first chargeback to start tracking.</p>' +
@@ -774,17 +806,17 @@
         '<td class="pnr">' + esc(c.pnr || "\u2014") + "</td>" +
         "<td>" + (c.saleId ? crmLink(c.saleId) : "\u2014") + "</td>" +
         "<td>" + esc(c.source || "\u2014") + "</td>" +
-        '<td class="num">' + esc(money(num(c.amount))) + "</td>" +
+        '<td class="num">' + esc(money(num(c.amount), c.currency)) + "</td>" +
         "<td>" + esc(fmtDate(c.disputeDate)) + "</td>" +
         "<td>" + due + "</td>" +
         "<td>" + esc(fmtRange(c.travelFrom, c.travelTo)) + "</td>" +
-         "<td>" + esc(stageLabel(c.stage, c.network)) + "</td>" +
+        "<td>" + esc(stageLabel(c.stage, c.network)) + "</td>" +
         '<td><span class="pill ' + statusKind(c.status) + '">' + esc(statusLabel(c.status)) + "</span>" +
           (needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
     }).join("");
-        area.innerHTML = "<table><thead><tr><th>PNR</th><th>Sale ID</th><th>Source</th>" +
+    area.innerHTML = "<table><thead><tr><th>PNR</th><th>Sale ID</th><th>Source</th>" +
       sortTh("amount", "Amount", "num") + sortTh("disputeDate", "Disputed date") + sortTh("dueDate", "Due date") +
-            "<th>Travel date</th><th>Dispute cycle</th><th>Status</th></tr></thead><tbody>" + rows + "</tbody></table>";
+      "<th>Travel date</th><th>Dispute cycle</th><th>Status</th></tr></thead><tbody>" + rows + "</tbody></table>";
     Array.prototype.forEach.call(area.querySelectorAll("th button[data-sort]"), function (btn) {
       btn.onclick = function () { setSort(btn.getAttribute("data-sort")); };
     });
@@ -815,10 +847,15 @@
     }).join("");
   }
   function productOpts(sel) {
-  var html = opts(PRODUCTS, sel);
-  if (sel && PRODUCTS.indexOf(sel) < 0) html = '<option value="' + esc(sel) + '" selected>' + esc(sel) + "</option>" + html;
-  return html;
-}
+    var html = opts(PRODUCTS, sel);
+    if (sel && PRODUCTS.indexOf(sel) < 0) html = '<option value="' + esc(sel) + '" selected>' + esc(sel) + "</option>" + html;
+    return html;
+  }
+  function currencyOpts(sel) {
+    var html = opts(CURRENCIES, sel);
+    if (sel && CURRENCIES.indexOf(sel) < 0) html = '<option value="' + esc(sel) + '" selected>' + esc(sel) + "</option>" + html;
+    return html;
+  }
   function stageOpts(sel, network) {
     var list = stagesFor(network).slice();
     if (list.indexOf(sel) < 0) list.unshift(sel);   // keep a stage saved earlier
@@ -929,10 +966,20 @@
     ["f_network", "Card network"], ["f_reason", "Reason"], ["f_amount", "Disputed amount"]
   ];
 
+  // The open case page registers this so leaving it can warn about unsaved changes.
+  var leaveGuard = null;
+  // A snapshot of every field on the case page, used to tell whether anything was changed.
+  function formSnap() {
+    return Array.prototype.map.call($("detailBody").querySelectorAll("input, select, textarea"), function (el) {
+      if (el.type === "file") return "";
+      return el.id + "=" + (el.type === "checkbox" ? el.checked : el.value);
+    }).join("\n");
+  }
+
   function openDialog(id) {
     var c = id ? state.cases.filter(function (x) { return x.id === id; })[0] : null;
     var isNew = !c;
-    c = c || { caseNo: nextCaseNo(), customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", evidence: {}, docs: [] };
+    c = c || { caseNo: nextCaseNo(), customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", currency: state.currency, fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", evidence: {}, docs: [] };
     var ro = !state.canWrite;
     var dis = ro ? " disabled" : "";
     $("detailBody").innerHTML =
@@ -957,8 +1004,9 @@
           '<label class="f">Card network<select id="f_network"' + dis + ">" + opts(NETWORKS, c.network) + "</select></label>" +
           '<label class="f">Reason<select id="f_reason"' + dis + ">" + reasonOptions(c.network, c.reason) + '</select><span class="hint" id="reasonHint"></span></label>' +
           '<label class="f">Disputed amount<input id="f_amount" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.amount) + '"' + dis + "></label>" +
+          '<label class="f">Currency<select id="f_currency"' + dis + ">" + currencyOpts(c.currency) + '</select><span class="hint">Applies to the amount and the fees.</span></label>' +
           '<label class="f">Dispute fees<input id="f_fee" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.fee) + '"' + dis + '></label>' +
-          '<label class="chk span2 chk-end"><input id="f_feesCharged" type="checkbox"' + (c.feesCharged ? " checked" : "") + dis + '> Dispute fees were charged to us</label>' +
+          '<label class="chk chk-end"><input id="f_feesCharged" type="checkbox"' + (c.feesCharged ? " checked" : "") + dis + '> Dispute fees were charged to us</label>' +
         "</div></section>" +
         '<section class="sec" id="evSec"' + (c.network === "Amex" ? "" : " hidden") + '><h4>Evidence for the Amex response <span class="muted" id="evCount"></span></h4><div class="evlist">' +
           AMEX_EVIDENCE.map(function (e) {
@@ -997,7 +1045,7 @@
       if ($("f_stage").value === "arb" && $("f_status").value === "lost") $("f_feesCharged").checked = true;
     }
     function refreshExplain() {
-      var tmp = { network: $("f_network").value, stage: $("f_stage").value, status: $("f_status").value, amount: $("f_amount").value, fee: $("f_fee").value, feesCharged: $("f_feesCharged").checked };
+      var tmp = { network: $("f_network").value, stage: $("f_stage").value, status: $("f_status").value, amount: $("f_amount").value, currency: $("f_currency").value, fee: $("f_fee").value, feesCharged: $("f_feesCharged").checked };
       $("explainLive").textContent = num(tmp.amount) > 0 ? explain(tmp) : "";
       refreshDecision();
     }
@@ -1088,6 +1136,7 @@
     $("f_disputeDate").onchange = function () { suggestDue(); refreshTx(); };
     refreshDueHint(); refreshAmexBits(); refreshReasonHint();
     $("f_amount").oninput = refreshExplain;
+    $("f_currency").onchange = refreshExplain;
     $("f_fee").oninput = refreshExplain;
     $("f_feesCharged").onchange = refreshExplain;
     refreshExplain();
@@ -1177,6 +1226,7 @@
       }
       return {
         id: c.id || uid(),
+        _v: c._v,
         caseNo: $("f_caseNo").value.trim() || c.caseNo,
         customer: c.customer || "",
         pnr: $("f_pnr").value.trim().toUpperCase(),
@@ -1191,6 +1241,7 @@
         network: $("f_network").value,
         reason: $("f_reason").value,
         amount: num($("f_amount").value),
+        currency: $("f_currency").value,
         fee: num($("f_fee").value),
         feesCharged: $("f_feesCharged").checked || (stage === "arb" && status === "lost"),
         disputeDate: $("f_disputeDate").value,
@@ -1205,28 +1256,53 @@
       };
     }
 
+    // Someone else saved this case after we opened it: our save was refused, nothing was overwritten.
+    function showConflict() {
+      $("dlgErr").innerHTML = esc("Someone else saved this case after you opened it, so your changes were not saved. " +
+        "Copy anything you need from the form, then load their version" + (addedIds.length ? " (files you uploaded here will need to be uploaded again)" : "") + ". ") +
+        '<button type="button" class="linkbtn" id="reloadCase">Load their version</button>';
+      $("reloadCase").onclick = function () {
+        if (leaveGuard) leaveGuard.discard();
+        leaveGuard = null;
+        loadCases(false).then(function () { state.openId = null; route(); });
+      };
+    }
+
     REQUIRED_FIELDS.forEach(function (r) {
       var el = $(r[0]);
       var clear = function () { el.classList.remove("invalid"); if (!document.querySelector(".invalid")) fail(""); };
       el.addEventListener("input", clear); el.addEventListener("change", clear);
     });
-    $("cancelBtn").onclick = function () { addedIds.forEach(dropAsset); dlg.close(); };
+    $("cancelBtn").onclick = function () {
+      // Cancel is an explicit "discard", so no extra question.
+      if (leaveGuard) leaveGuard.discard();
+      leaveGuard = null;
+      dlg.close();
+    };
     if ($("saveBtn")) $("saveBtn").onclick = function () {
       var rec = collect(); if (!rec) return;
       $("saveBtn").disabled = true;
       saveCase(rec).then(function () {
         removedIds.forEach(dropAsset); addedIds = [];
+        leaveGuard = null;
         var outside = !inPeriod(rec);
         if (outside) { state.period = "all"; savePrefs(); }
         dlg.close();
         toast((isNew ? "Case added" : "Changes saved") + (outside ? ". Showing all time." : ""));
-      }, function () { $("saveBtn").disabled = false; });
+      }, function (e) {
+        $("saveBtn").disabled = false;
+        if (e && e.status === 409) showConflict();
+      });
     };
     if ($("delBtn")) $("delBtn").onclick = function () {
       if (!$("delBtn").dataset.sure) {
         $("delBtn").dataset.sure = "1"; $("delBtn").textContent = "Click again to delete"; return;
       }
-      removeCase(c.id).then(function () { (c.docs || []).concat(docs).forEach(function (d) { dropAsset(d.id); }); dlg.close(); toast("Case deleted"); }, function () {});
+      removeCase(c.id).then(function () {
+        (c.docs || []).concat(docs).forEach(function (d) { dropAsset(d.id); });
+        leaveGuard = null;
+        dlg.close(); toast("Case deleted");
+      }, function () {});
     };
     if ($("checkedBtn")) $("checkedBtn").onclick = function () {
       var rec = norm(c);
@@ -1236,8 +1312,18 @@
       saveCase(rec).then(function () {
         c = rec;
         $("checkLive").hidden = true;
-                toast("Marked as checked. We will remind you again in " + followUpDays(rec) + " days.");
-      }, function () { $("checkedBtn").disabled = false; });
+        toast("Marked as checked. We will remind you again in " + followUpDays(rec) + " days.");
+      }, function (e) {
+        $("checkedBtn").disabled = false;
+        if (e && e.status === 409) showConflict();
+      });
+    };
+
+    // Remember how the form looked when opened, so leaving can warn about unsaved changes.
+    var snap0 = formSnap();
+    leaveGuard = {
+      isDirty: function () { return !ro && (addedIds.length > 0 || removedIds.length > 0 || formSnap() !== snap0); },
+      discard: function () { addedIds.forEach(dropAsset); addedIds = []; }
     };
     state.openId = isNew ? "new" : c.id;
   }
@@ -1245,27 +1331,34 @@
   /* ---------- views (list <-> case page), driven by the URL hash ---------- */
   var listScroll = 0;
   function showView(name) {
-    var detail = name === "detail";
-    if (detail && $("detailView").hidden) listScroll = window.scrollY || 0;
+    var detail = name === "detail", wasDetail = !$("detailView").hidden;
+    if (detail && !wasDetail) listScroll = window.scrollY || 0;
     $("listView").hidden = detail;
     $("detailView").hidden = !detail;
-    if (detail) window.scrollTo(0, 0);
-    else if (listScroll) { var y = listScroll; listScroll = 0; window.scrollTo(0, y); }
+    if (detail && !wasDetail) window.scrollTo(0, 0);
+    else if (!detail && listScroll) { var y = listScroll; listScroll = 0; window.scrollTo(0, y); }
     document.title = detail ? "Case - Chargeback Tracker" : "Chargeback Tracker";
   }
   function closeDetail() { if (location.hash) location.hash = ""; else route(); }
   function route() {
-    var h = location.hash;
+    var h = location.hash, target = null;
     if (h.indexOf("#case/") === 0) {
       var id = decodeURIComponent(h.slice(6));
-      var exists = state.cases.some(function (x) { return x.id === id; });
-      if (exists) {
-        if (state.openId !== id) openDialog(id);
-        showView("detail");
+      if (state.cases.some(function (x) { return x.id === id; })) target = id;
+    } else if (h === "#new" && state.canWrite) {
+      target = "new";
+    }
+    // Leaving a case page (Back button, browser back, another link) with unsaved changes: ask first.
+    if (state.openId && state.openId !== target && leaveGuard) {
+      if (leaveGuard.isDirty() && !window.confirm("You have unsaved changes on this case. Leave without saving?")) {
+        location.hash = state.openId === "new" ? "#new" : "#case/" + encodeURIComponent(state.openId);
         return;
       }
-    } else if (h === "#new" && state.canWrite) {
-      if (state.openId !== "new") openDialog(null);
+      leaveGuard.discard();   // files uploaded but never saved to the case are removed again
+      leaveGuard = null;
+    }
+    if (target) {
+      if (state.openId !== target) openDialog(target === "new" ? null : target);
       showView("detail");
       return;
     }
@@ -1274,6 +1367,10 @@
     showView("list");
     renderAll();
   }
+  // Closing or reloading the tab with unsaved changes: the browser shows its own warning.
+  window.addEventListener("beforeunload", function (e) {
+    if (leaveGuard && leaveGuard.isDirty()) { e.preventDefault(); e.returnValue = ""; }
+  });
 
   function nextCaseNo() {
     var max = 0;
@@ -1286,17 +1383,20 @@
 
   /* ---------- export ---------- */
   function csvCell(v) {
+    // Text starting with = + - @ would run as a formula in Excel; a leading ' keeps it as plain text.
+    if (typeof v === "string" && /^[=+\-@\t\r]/.test(v)) v = "'" + v;
     v = v == null ? "" : String(v);
-    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
   }
   function exportCsv() {
     if (!state.downloads) return;
-    var head = ["Case", "Disputed on", "Respond by", "Customer", "PNR", "Sale ID", "Product", "Travel start", "Travel end", "Order ref", "Transaction date", "Network", "Reason", "Amount", "Dispute fees", "Fees charged", "Stage", "Status", "Net loss", "Notes"];
+    var head = ["Case", "Disputed on", "Respond by", "Customer", "PNR", "Sale ID", "Source", "Product", "Travel start", "Travel end", "Order ref", "Transaction date", "Network", "Reason", "Amount", "Currency", "Dispute fees", "Fees charged", "Stage", "Status", "Net loss", "Notes"];
     var rows = filteredCases().map(function (c) {
-      return [c.caseNo, c.disputeDate, c.dueDate, c.customer, c.pnr, c.saleId, c.product, c.travelFrom, c.travelTo, c.orderRef, c.transactionDate, c.network, c.reason, c.amount, c.fee, c.feesCharged ? "yes" : "no", stageLabel(c.stage, c.network), statusLabel(c.status), netLoss(c), c.notes].map(csvCell).join(",");
+      return [c.caseNo, c.disputeDate, c.dueDate, c.customer, c.pnr, c.saleId, c.source, c.product, c.travelFrom, c.travelTo, c.orderRef, c.transactionDate, c.network, c.reason, c.amount, c.currency, c.fee, c.feesCharged ? "yes" : "no", stageLabel(c.stage, c.network), statusLabel(c.status), netLoss(c), c.notes].map(csvCell).join(",");
     });
     var name = "chargebacks-" + state.period + (state.period === "custom" ? "-" + (state.from || "start") + "-to-" + (state.to || "now") : "") + ".csv";
-    state.downloads.save({ filename: name, data: [head.join(",")].concat(rows).join("\n") })
+    // The leading \uFEFF tells Excel the file is UTF-8, so accents and Cyrillic show correctly.
+    state.downloads.save({ filename: name, type: "text/csv;charset=utf-8", data: "\uFEFF" + [head.join(",")].concat(rows).join("\r\n") })
       .then(function () {}, function () {});
   }
 
@@ -1312,6 +1412,7 @@
     state.sortKey = prefs.sortKey; state.sortDir = prefs.sortDir;
   }
 
+  function clearSpecial() { state.checkOnly = false; state.urgentOnly = false; }
   $("period").onchange = function (e) {
     state.period = e.target.value;
     if (state.period === "custom" && !state.from && !state.to) {
@@ -1322,9 +1423,9 @@
   $("rangeFrom").onchange = function (e) { state.from = e.target.value; savePrefs(); renderAll(); };
   $("rangeTo").onchange = function (e) { state.to = e.target.value; savePrefs(); renderAll(); };
   $("currency").onchange = function (e) { state.currency = e.target.value; savePrefs(); renderAll(); };
-  $("stageFilter").onchange = function (e) { state.stage = e.target.value; state.checkOnly = false; renderTable(); };
-  $("statusFilter").onchange = function (e) { state.status = e.target.value; state.checkOnly = false; renderTable(); };
-  $("search").oninput = function (e) { state.q = e.target.value; state.checkOnly = false; renderTable(); };
+  $("stageFilter").onchange = function (e) { state.stage = e.target.value; clearSpecial(); renderTable(); };
+  $("statusFilter").onchange = function (e) { state.status = e.target.value; clearSpecial(); renderTable(); };
+  $("search").oninput = function (e) { state.q = e.target.value; clearSpecial(); renderTable(); };
   $("newBtn").onclick = function () { location.hash = "#new"; };
   $("backBtn").onclick = closeDetail;
   window.addEventListener("hashchange", route);

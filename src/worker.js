@@ -47,17 +47,37 @@ export default {
 
     try {
       if (p === "/api/cases" && req.method === "GET") {
-        const { results } = await env.DB.prepare("SELECT data FROM cases").all();
-        return json(results.map((r) => JSON.parse(r.data)));
+        const { results } = await env.DB.prepare("SELECT data, updated_at FROM cases").all();
+        // _v is the case's version: the browser sends it back when saving so we can spot overwrites.
+        return json(results.map((r) => Object.assign(JSON.parse(r.data), { _v: r.updated_at })));
       }
       let m = p.match(/^\/api\/cases\/([\w-]+)$/);
       if (m && req.method === "PUT") {
         const body = await req.json();
         body.id = m[1];
-        await env.DB.prepare(
-          "INSERT INTO cases (id, data, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET data = ?2, updated_at = ?3"
-        ).bind(m[1], JSON.stringify(body), Date.now()).run();
-        return json({ ok: true });
+        delete body._v;
+        const data = JSON.stringify(body);
+        const base = req.headers.get("x-version");
+        const v = Math.max(Date.now(), (Number(base) || 0) + 1);
+        if (base === "new") {
+          // A new case: never replace an existing one.
+          const r = await env.DB.prepare(
+            "INSERT INTO cases (id, data, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO NOTHING"
+          ).bind(m[1], data, v).run();
+          if (!r.meta.changes) return json({ error: "A case with this id already exists", code: "conflict" }, 409);
+        } else if (base) {
+          // An existing case: save only if nobody else saved it since this browser loaded it.
+          const r = await env.DB.prepare(
+            "UPDATE cases SET data = ?2, updated_at = ?3 WHERE id = ?1 AND updated_at = ?4"
+          ).bind(m[1], data, v, Number(base)).run();
+          if (!r.meta.changes) return json({ error: "The case was changed or deleted by someone else", code: "conflict" }, 409);
+        } else {
+          // Older copy of the app still open in a browser tab: save as before.
+          await env.DB.prepare(
+            "INSERT INTO cases (id, data, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET data = ?2, updated_at = ?3"
+          ).bind(m[1], data, v).run();
+        }
+        return json({ ok: true, v });
       }
       if (m && req.method === "DELETE") {
         const row = await env.DB.prepare("SELECT data FROM cases WHERE id = ?1").bind(m[1]).first();
@@ -97,6 +117,7 @@ export default {
       }
       return json({ error: "Not found" }, 404);
     } catch (e) {
+      console.error(e);
       return json({ error: "Server error" }, 500);
     }
   },
