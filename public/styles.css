@@ -77,18 +77,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .lead .big { font-size: clamp(44px, 7vw, 68px); font-weight: 800; letter-spacing: -0.035em; line-height: 1.05; color: var(--loss); margin: 6px 0 8px; }
 .lead .big.zero { color: var(--ink); }
 .lead .sub { color: var(--ink-2); max-width: 36ch; }
-.facts { display: grid; grid-template-columns: repeat(2, 1fr); border-top: 1px solid var(--line); align-content: start; }
-.fact { grid-column: 1; padding: 14px 16px 14px 0; border-bottom: 1px solid var(--line); }
 .donutcell { grid-column: 2; grid-row: 1 / span 3; padding: 14px 0 14px 16px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
 .donutcell svg { width: 100%; max-width: 170px; height: auto; display: block; }
 .donutcell .pct { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; fill: var(--ink); }
 .donutcell .pctl { font-size: 9.5px; fill: var(--ink-2); }
 .donutcell .legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; font-size: 13px; color: var(--ink-2); }
-.fact .k { color: var(--ink-2); font-size: 13px; }
-.fact .v { font-size: 24px; font-weight: 700; letter-spacing: -0.015em; margin-top: 2px; }
-.fact .n { color: var(--ink-3); font-size: 13px; }
-.fact .v.win { color: var(--win); }
-.fact .v.wait { color: var(--wait); }
 
 .split { margin: 4px 0 24px; }
 .split .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--neutral-bg); }
@@ -220,9 +213,6 @@ optgroup { font-weight: 700; }
 :root[data-theme="dark"] { --c1:#7fc0a0; --c2:#d3b57a; --c3:#9fb0d8; --c4:#8fd0b0; --c5:#ff8fa3; --c6:#7fb6d0; --c7:#c2a5d6; --c8:#85908a; }
 :root[data-theme="dark"] { --c1:#6bb4d4; --c2:#f0b45a; --c3:#b39ddb; --c4:#6fd6a0; --c5:#ff8fa3; --c6:#8c9eff; --c7:#4dd0c8; --c8:#7f8b98; }
 .stats { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 24px; align-items: stretch; }
-.facts { grid-template-columns: 1fr; }
-.fact .v.loss { color: var(--loss); }
-.fact .n { max-width: 46ch; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .chartcard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: flex; flex-direction: column; }
 .chartcard h3 { margin: 0 0 14px; font-size: 15px; font-weight: 700; }
@@ -239,11 +229,8 @@ optgroup { font-weight: 700; }
 .chart-empty { margin: 8px 0 0; }
 @media (max-width: 1180px) {
   .stats { grid-template-columns: 1fr; }
-  .facts { grid-template-columns: 1fr 1fr; }
-  .facts .fact { grid-column: auto; }
 }
 @media (max-width: 1180px) { .charts { grid-template-columns: 1fr; } }
-@media (max-width: 520px) { .facts { grid-template-columns: 1fr; } .chartbody { grid-template-columns: 1fr; } .chartbody svg { max-width: 170px; margin: 0 auto; } }
 
 /* three smaller donuts side by side */
 .charts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -302,31 +289,17 @@ optgroup { font-weight: 700; }
 .sortbtn.on { color: var(--ink); }
 .sortbtn.on .arr { opacity: 1; color: var(--accent); }
 
-/* numbers card: donut by default, totals on hover / keyboard focus / tap */
-.statcard { position: relative; display: grid; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; }
-.statcard .face { grid-area: 1 / 1; min-width: 0; transition: opacity .18s ease, visibility .18s; }
-.statcard .front { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
-.statcard .front svg { width: 100%; max-width: 170px; height: auto; display: block; }
-.statcard .front .pct { font-weight: 800; letter-spacing: -0.02em; fill: var(--ink); }
-.statcard .front .pctl { font-size: 9.5px; fill: var(--ink-2); }
-.statcard .back { opacity: 0; visibility: hidden; align-self: center; }
-.statcard.flip .front { opacity: 0; visibility: hidden; }
-.statcard.flip .back { opacity: 1; visibility: visible; }
-.statcard:focus-visible .front { opacity: 0; visibility: hidden; }
-.statcard:focus-visible .back { opacity: 1; visibility: visible; }
-@media (hover: hover) {
-  .statcard:hover .front { opacity: 0; visibility: hidden; }
-  .statcard:hover .back { opacity: 1; visibility: visible; }
-}
-@media (prefers-reduced-motion: reduce) { .statcard .face { transition: none; } }
-.statcard .facts { border-top: 0; }
-.statcard .fact:first-child { padding-top: 0; }
-.statcard .fact:last-child { border-bottom: 0; padding-bottom: 0; }
+/* numbers card: donut, legend, and the two figures the donut doesn't show */
+.statcard { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; }
+.statcard svg { width: 100%; max-width: 170px; height: auto; display: block; }
+.statcard .pct { font-weight: 800; letter-spacing: -0.02em; fill: var(--ink); }
+.statcard .pctl { font-size: 9.5px; fill: var(--ink-2); }
 .olegend { width: 100%; max-width: 320px; gap: 10px; }
 .olegend li { grid-template-columns: auto minmax(0, 1fr) auto; }
-.flip-hint { margin: 0; font-size: 12px; color: var(--ink-3); }
-.flip-hint .h-tap { display: none; }
-@media (hover: none) { .flip-hint .h-hover { display: none; } .flip-hint .h-tap { display: inline; } }
+.statextra { padding-top: 12px; border-top: 1px solid var(--line-2); }
+.statextra li { grid-template-columns: minmax(0, 1fr) auto; }
+.statextra .cp.loss { color: var(--loss); }
+.statextra .cp.wait { color: var(--wait); }
 
 /* Amex evidence checklist and hints */
 .evlist { display: grid; gap: 10px; }

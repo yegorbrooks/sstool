@@ -180,7 +180,6 @@
     to: "",
     sortKey: "disputeDate",
     sortDir: "desc",
-    statFlip: false,
     stage: "all",
     status: "all",
     q: "",
@@ -463,20 +462,12 @@
 
   function renderStats() {
     var s = computeStats(state.cases.filter(inPeriod));
-    var label = "Net loss, " + periodText();
-
-    var sub = "Disputes: " + money(s.lostAmt + s.awaiting) + ", Fees: " + money(s.fees);
-
     var inP = state.cases.filter(inPeriod);
-    var facts =
-      '<div class="facts">' +
-        fact(label, money(s.netLoss), sub, s.netLoss ? "loss" : "") +
-        fact("Total disputed", money(s.disputed), plural(s.count, "case", "cases"), "") +
-        fact("Recovered (won)", money(s.won), plural(s.wonCount, "case", "cases"), "win") +
-        fact("Credited back, still at risk", money(s.atRisk), plural(s.reviewCount, "case", "cases") + " in review", "wait") +
-      "</div>";
-    var card = '<div class="statcard' + (state.statFlip ? " flip" : "") + '" id="statCard" tabindex="0" role="group" aria-label="Disputed amount by outcome. Hover or focus to see totals.">' +
-      '<div class="face front">' + outcomeDonut(s) + '</div><div class="face back">' + facts + "</div></div>";
+    var card = '<div class="statcard">' + outcomeDonut(s) +
+      '<ul class="clegend olegend statextra">' +
+        '<li title="' + esc("Disputes: " + money(s.lostAmt + s.awaiting) + ", Fees: " + money(s.fees)) + '"><span class="cl">Net loss, ' + esc(periodText()) + '</span><span class="cp' + (s.netLoss ? " loss" : "") + '">' + esc(money(s.netLoss)) + "</span></li>" +
+        '<li><span class="cl">Credited back, still at risk</span><span class="cp wait">' + esc(money(s.atRisk)) + "</span></li>" +
+      "</ul></div>";
     var charts = '<div class="charts">' +
       winCard(s) +
       chartCard("Dispute reasons", inP, function (c) { return c.reason; }) +
@@ -485,13 +476,6 @@
     "</div>";
 
     $("statsArea").innerHTML = '<div class="stats">' + card + charts + "</div>";
-    var sc = $("statCard");
-    if (sc) sc.onclick = function () {
-      if (window.matchMedia && matchMedia("(hover: none)").matches) { state.statFlip = !state.statFlip; sc.classList.toggle("flip", state.statFlip); }
-    };
-  }
-  function fact(k, v, n, cls) {
-    return '<div class="fact"><div class="k">' + esc(k) + '</div><div class="v ' + cls + '">' + esc(v) + '</div><div class="n">' + esc(n) + "</div></div>";
   }
 
   // Default face of the numbers card: disputed amount split by outcome.
@@ -518,7 +502,7 @@
     var legend = '<ul class="clegend olegend">' + segs.map(function (x) {
       return '<li><i class="dot" style="background:' + x.color + ';opacity:' + x.op + '"></i><span class="cl">' + esc(x.label) + '</span><span class="cp">' + esc(money(x.n)) + "</span></li>";
     }).join("") + "</ul>";
-    return svg + legend + '<p class="flip-hint"><span class="h-hover">Hover for totals</span><span class="h-tap">Tap for totals</span></p>';
+    return svg + legend;
   }
   // Generic donut card: segs = [{label, n, color?}], total = sum used for percentages.
   function donutCard(title, segs, total, big, small) {
