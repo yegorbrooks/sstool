@@ -305,7 +305,7 @@
       case "prearb:won": return "The bank accepted our defence. No further debits.";
       case "prearb:lost": return "Pre-arbitration was lost. " + a + " is debited again. Final loss.";
       case "prearb:accepted": return "We accepted pre-arbitration. " + a + " is debited again. Final loss.";
-      case "arb:defended": return "The card brand is deciding. If it rules for the cardholder we are debited " + a + (fee ? " plus " + money(fee) + " in dispute fees." : " plus the dispute fees.");
+      case "arb:defended": return "The card brand is deciding. If it rules for the cardholder we are debited " + a + (fee ? " plus " + money(fee) + " in dispute fees." : " plus the dispute fees.") + " No status reminder at this stage: wait for the bank's notice.";
       case "arb:won": return "The card brand ruled for the merchant. No further debits.";
       case "arb:lost": return "The card brand ruled for the cardholder. " + a + (fee ? " plus " + money(fee) + " in dispute fees" : " plus dispute fees") + " debited. Final loss.";
     }
@@ -667,18 +667,23 @@
     return donutCard("Win rate", segs, s.decided, Math.round(s.winRate * 100) + "%", "win rate");
   }
 
-  // Follow-up: 60 days after we replied (status "Defended"), remind us to check the case.
-  var FOLLOW_UP_DAYS = 60;
+  // Follow-up after we reply (status "Defended"): remind us to check the case.
+  // First stage: 45 days. Pre-arbitration: 15 days. Arbitration: no reminder, wait for the bank's notice.
+  var FOLLOW_UP_DAYS = { inquiry: 45, first: 45, prearb: 15 };
+  function followUpDays(c) { return FOLLOW_UP_DAYS[c.stage] || 0; }
   function respondedOn(c) {
-    if (c.status !== "defended") return "";
+    if (c.status !== "defended" || !followUpDays(c)) return "";
     var at = "";
-    (c.history || []).forEach(function (h) { if (h.status === "defended" && h.at && h.at > at) at = h.at; });
+    // Only count the reply made in the current stage, so a new pre-arb defence restarts the clock.
+    (c.history || []).forEach(function (h) {
+      if (h.status === "defended" && (!h.stage || h.stage === c.stage) && h.at && h.at > at) at = h.at;
+    });
     return at;
   }
   function followUpDate(c) {
     var r = respondedOn(c); if (!r) return "";
     var base = c.checkedAt && c.checkedAt > r ? c.checkedAt : r;
-    return dstr(addDays(parseDate(base), FOLLOW_UP_DAYS));
+    return dstr(addDays(parseDate(base), followUpDays(c)));
   }
   function needsStatusCheck(c) {
     var f = followUpDate(c);
@@ -702,7 +707,7 @@
     }
     var check = state.cases.filter(needsStatusCheck);
     if (check.length) {
-      html += '<div class="alert"><span>' + esc(plural(check.length, "case was", "cases were") + " replied to " + FOLLOW_UP_DAYS + " or more days ago. Check " + (check.length === 1 ? "its" : "their") + " status.") + '</span><button id="showCheck">Show them</button></div>';
+      html += '<div class="alert"><span>' + esc(plural(check.length, "case is", "cases are") + " due for a status check (45 days after our reply at the first stage, 15 days at pre-arbitration).") + '</span><button id="showCheck">Show them</button></div>';
     }
     var area = $("alertArea");
     area.innerHTML = html;
@@ -710,7 +715,7 @@
       state.period = "all"; state.stage = "all"; state.status = "pending"; state.q = ""; $("search").value = ""; renderAll();
     };
     if ($("showCheck")) $("showCheck").onclick = function () {
-      state.period = "all"; state.stage = "all"; state.status = "defended"; state.q = ""; $("search").value = ""; renderAll();
+      state.period = "all"; state.stage = "all"; state.status = "all"; state.checkOnly = true; state.q = ""; $("search").value = ""; renderAll();
     };
   }
 
@@ -719,6 +724,7 @@
     return state.cases.filter(function (c) {
       if (!inPeriod(c)) return false;
       if (state.stage !== "all" && c.stage !== state.stage) return false;
+      if (state.checkOnly && !needsStatusCheck(c)) return false;
       if (state.status !== "all" && c.status !== state.status) return false;
       if (q) {
         var hay = [c.caseNo, c.customer, c.pnr, c.saleId, c.product, c.orderRef, c.reason, c.network, c.notes].join(" ").toLowerCase();
@@ -757,7 +763,7 @@
 
   function renderTable() {
     var list = filteredCases();
-    $("listTitle").textContent = "Cases (" + list.length + ")";
+    $("listTitle").textContent = (state.checkOnly ? "Cases to check" : "Cases") + " (" + list.length + ")";
     var area = $("tableArea");
     if (!state.cases.length) {
       area.innerHTML = '<div class="empty"><p>No cases yet. Add your first chargeback to start tracking.</p>' +
@@ -1246,7 +1252,7 @@
       saveCase(rec).then(function () {
         c = rec;
         $("checkLive").hidden = true;
-        toast("Marked as checked. We will remind you again in " + FOLLOW_UP_DAYS + " days.");
+                toast("Marked as checked. We will remind you again in " + followUpDays(rec) + " days.");
       }, function () { $("checkedBtn").disabled = false; });
     };
     state.openId = isNew ? "new" : c.id;
@@ -1332,9 +1338,9 @@
   $("rangeFrom").onchange = function (e) { state.from = e.target.value; savePrefs(); renderAll(); };
   $("rangeTo").onchange = function (e) { state.to = e.target.value; savePrefs(); renderAll(); };
   $("currency").onchange = function (e) { state.currency = e.target.value; savePrefs(); renderAll(); };
-  $("stageFilter").onchange = function (e) { state.stage = e.target.value; renderTable(); };
-  $("statusFilter").onchange = function (e) { state.status = e.target.value; renderTable(); };
-  $("search").oninput = function (e) { state.q = e.target.value; renderTable(); };
+  $("stageFilter").onchange = function (e) { state.stage = e.target.value; state.checkOnly = false; renderTable(); };
+  $("statusFilter").onchange = function (e) { state.status = e.target.value; state.checkOnly = false; renderTable(); };
+  $("search").oninput = function (e) { state.q = e.target.value; state.checkOnly = false; renderTable(); };
   $("newBtn").onclick = function () { location.hash = "#new"; };
   $("backBtn").onclick = closeDetail;
   window.addEventListener("hashchange", route);
