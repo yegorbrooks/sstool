@@ -373,3 +373,6 @@ a.crm:hover { color: var(--accent); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .chip.on .cnt { color: inherit; opacity: .8; }
 .secempty { margin: 0; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; }
+
+/* status dropdown in each case section */
+.secstatus { min-width: 170px; }

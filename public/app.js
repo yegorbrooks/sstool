@@ -332,7 +332,8 @@
   function loadCases(first) {
     return api("GET", "/api/cases").then(function (list) {
       state.cases = list.map(norm); state.loaded = true;
-      if (first) { renderAll(); route(); } else if (state.openId == null && $("detailView").hidden) renderAll();
+      var picking = document.activeElement && document.activeElement.classList.contains("secstatus");
+      if (first) { renderAll(); route(); } else if (state.openId == null && $("detailView").hidden && !picking) renderAll();
     }, function () { if (first) { state.loaded = true; renderAll(); route(); toast("Could not load cases. Sign in again or reload."); } });
   }
   function initStorage() {
@@ -789,20 +790,21 @@
         statuses.forEach(function (k) { counts[k] = 0; });
         inStage.forEach(function (c) { if (c.status in counts) counts[c.status]++; });
         var rows = sortCases(inStage.filter(function (c) { return c.status === sel; }));
-        var chips = statuses.map(function (k) {
-          return '<button type="button" class="chip' + (k === sel ? " on" : "") + '" aria-pressed="' + (k === sel) + '" data-sec="' + key + '" data-st="' + k + '">' +
-            esc(STATUSES[k].label) + '<span class="cnt">' + counts[k] + "</span></button>";
-        }).join("");
+        var picker = '<select class="field-sm secstatus" data-sec="' + key + '" aria-label="' + esc(s[1] + " status") + '">' +
+          statuses.map(function (k) {
+            return '<option value="' + k + '"' + (k === sel ? " selected" : "") + ">" + esc(STATUSES[k].label + " (" + counts[k] + ")") + "</option>";
+          }).join("") + "</select>";
         return '<section class="casesec" aria-label="' + esc(s[1]) + '"><div class="sechead"><h3>' + esc(s[1]) + "</h3>" +
-          '<div class="chips" role="group" aria-label="' + esc(s[1] + " status") + '">' + chips + "</div></div>" +
+          picker + "</div>" +
           (rows.length ? caseTable(rows, key, false) : '<p class="muted secempty">No ' + esc(STATUSES[sel].label.toLowerCase()) + " cases.</p>") +
           "</section>";
       }).join("");
-      Array.prototype.forEach.call(area.querySelectorAll(".chip"), function (b) {
-        b.onclick = function () {
-          state.secStatus[b.getAttribute("data-sec")] = b.getAttribute("data-st");
+      Array.prototype.forEach.call(area.querySelectorAll("select.secstatus"), function (sl) {
+        sl.onchange = function () {
+          var sec = sl.getAttribute("data-sec");
+          state.secStatus[sec] = sl.value;
           renderTable();
-          var again = area.querySelector('.chip[data-sec="' + b.getAttribute("data-sec") + '"][data-st="' + b.getAttribute("data-st") + '"]');
+          var again = area.querySelector('select.secstatus[data-sec="' + sec + '"]');
           if (again) again.focus();
         };
       });
