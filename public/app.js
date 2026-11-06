@@ -266,6 +266,7 @@
   }
 
   /* ---------- money per case ---------- */
+  function isInquiry(c) { return c.stage === "inquiry"; }
   function isClosedLoss(c) { return c.status === "lost" || c.status === "accepted"; }
   function isAwaitingDebit(c) { return c.stage === "first" && c.status === "pending"; }
   function feeIn(c) { return c.feesCharged ? num(c.fee) : 0; }
@@ -286,11 +287,11 @@
   }
   function amexExplain(key, a) {
     switch (key) {
-      case "inquiry:pending": return "Amex sent an inquiry (RFI). Nothing is debited yet. We have 20 days to respond with documentation; if we do not, or the proof is insufficient, it becomes a chargeback and " + a + " is debited.";
-      case "inquiry:defended": return "We responded to the inquiry. Nothing is debited while Amex reviews it. If it is not resolved in our favour it becomes a chargeback.";
+      case "inquiry:pending": return "Amex sent an inquiry (RFI). Nothing is debited and it is not counted as pending or lost money. We have 20 days to respond with documentation; if we do not, or the proof is insufficient, Amex may raise a chargeback.";
+      case "inquiry:defended": return "We responded to the inquiry. Nothing is debited. If Amex is not satisfied it may raise a chargeback: move the case to the Chargeback stage when that notice arrives.";
       case "inquiry:won": return "Amex closed the inquiry in our favour. No debit.";
-      case "inquiry:lost": return "The inquiry was not resolved in our favour and " + a + " was debited. Final loss.";
-      case "inquiry:accepted": return "We accepted the inquiry. " + a + " is a final loss.";
+      case "inquiry:lost": return "The inquiry was not resolved in our favour. Nothing is debited at the inquiry stage; if Amex raises a chargeback, move the case to the Chargeback stage so the " + a + " debit is counted.";
+      case "inquiry:accepted": return "We accepted the inquiry. Nothing is debited at the inquiry stage; any debit comes with a chargeback, recorded under the Chargeback stage.";
       case "first:pending": return "Amex debited " + a + " (direct chargeback, or after an inquiry). We have 20 days from the notice to respond with documentation; if we do not, or the proof is insufficient, the chargeback stands.";
       case "first:defended": return "We responded. " + a + " was credited back while Amex reviews, usually 6 to 8 weeks. Amex has no pre-arbitration or arbitration, so its decision is final.";
       case "first:won": return "Amex decided in our favour. Loss recovered.";
@@ -302,7 +303,7 @@
   function explain(c) {
     var a = money(num(c.amount), c.currency);
     var fee = num(c.fee);
-    if (c.network === "Amex") { var ax = amexExplain(c.stage + ":" + c.status, a); if (ax) return ax; }
+      if (c.network === "Amex" || c.stage === "inquiry") { var ax = amexExplain(c.stage + ":" + c.status, a); if (ax) return ax; }
     switch (c.stage + ":" + c.status) {
       case "first:pending": return "We were debited " + a + " when the dispute was raised. Accepting keeps the loss; defending gets the amount credited back.";
       case "first:defended": return a + " was credited back. The bank is reviewing our defence and may still reverse it.";
@@ -441,12 +442,17 @@
   }
   function computeStats(list) {
     var s = { count: list.length, disputed: 0, won: 0, wonCount: 0, lostAmt: 0, fees: 0, lostCount: 0,
-              awaiting: 0, awaitCount: 0, atRisk: 0, reviewAmt: 0, reviewCount: 0, decided: 0 };
+              awaiting: 0, awaitCount: 0, atRisk: 0, reviewAmt: 0, reviewCount: 0, decided: 0, inqOpen: 0 };
     list.forEach(function (c) {
       var a = num(c.amount);
+      // Win rate counts every closed case, inquiries included.
+      if (c.status === "won") { s.wonCount++; s.decided++; }
+      else if (c.status === "lost" || c.status === "accepted") { s.lostCount++; s.decided++; }
+      // Inquiries have no financial impact: keep them out of every amount.
+      if (isInquiry(c)) { if (c.status === "pending" || c.status === "defended") s.inqOpen++; return; }
       s.disputed += a;
-      if (c.status === "won") { s.won += a; s.wonCount++; s.decided++; }
-      else if (isClosedLoss(c)) { s.lostAmt += a; s.fees += feeIn(c); s.lostCount++; s.decided++; }
+      if (c.status === "won") s.won += a;
+      else if (isClosedLoss(c)) { s.lostAmt += a; s.fees += feeIn(c); }
       else if (isAwaitingDebit(c)) { s.awaiting += a; s.awaitCount++; }
       else { s.reviewAmt += a; s.reviewCount++; s.atRisk += atRisk(c); }
     });
@@ -491,6 +497,7 @@
       '<ul class="clegend olegend statextra">' +
         '<li title="' + esc("Disputes: " + money(s.lostAmt + s.awaiting) + ", Fees: " + money(s.fees)) + '"><span class="cl">Net loss, ' + esc(periodText()) + '</span><span class="cp' + (s.netLoss ? " loss" : "") + '">' + esc(money(s.netLoss)) + "</span></li>" +
         '<li><span class="cl">Credited back, still at risk</span><span class="cp wait">' + esc(money(s.atRisk)) + "</span></li>" +
+        (s.inqOpen ? '<li title="Inquiries are not debited, so they are left out of all amounts."><span class="cl">Open inquiries, no debit</span><span class="cp">' + esc(plural(s.inqOpen, "case", "cases")) + "</span></li>" : "") +
       "</ul>" + note + "</div>";
     var charts = '<div class="charts">' +
       winCard(s) +
@@ -606,8 +613,9 @@
     list.forEach(function (c) {
       if (!c.disputeDate) return;
       var i = idx[keyOf(c.disputeDate)];
-      total += num(c.amount);
-      if (i != null) { buckets[i].amt += num(c.amount); buckets[i].n++; }
+      var a = isInquiry(c) ? 0 : num(c.amount);
+      total += a;
+      if (i != null) { buckets[i].amt += a; buckets[i].n++; }
     });
     return { buckets: buckets, mode: mode, total: total,
              per: mode === "day" ? "per day" : mode === "week" ? "per week" : "per month" };
@@ -1219,8 +1227,10 @@
       var history = (c.history || []).slice();
       var label = stageLabel(stage, $("f_network").value) + ": " + statusLabel(status);
       if (isNew) {
-        history.push({ at: $("f_disputeDate").value, stage: "first", status: "pending", text: $("f_network").value === "Amex" ? "Dispute received." : "Dispute received. Amount debited." });
-        if (stage !== "first" || status !== "pending") history.push({ at: stepDate, stage: stage, status: status, text: "Case entered as " + label + "." });
+        var start = stage === "inquiry" ? "inquiry" : "first";
+        history.push({ at: $("f_disputeDate").value, stage: start, status: "pending",
+          text: start === "inquiry" ? "Inquiry received. Nothing debited." : $("f_network").value === "Amex" ? "Dispute received." : "Dispute received. Amount debited." });
+        if (stage !== start || status !== "pending") history.push({ at: stepDate, stage: stage, status: status, text: "Case entered as " + label + "." });
       } else if (stage !== c.stage || status !== c.status) {
         history.push({ at: stepDate, stage: stage, status: status, text: label + "." });
       }
