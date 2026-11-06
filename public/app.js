@@ -172,8 +172,8 @@
     to: "",
     sortKey: "disputeDate",
     sortDir: "desc",
-    stage: "all",
-    status: "all",
+    tab: "cases",
+    secStatus: {},
     q: "",
     currency: "USD",
     checkOnly: false,
@@ -423,12 +423,6 @@
     $("currency").innerHTML = CURRENCIES.map(function (c) {
       return '<option' + (c === state.currency ? " selected" : "") + ">" + c + "</option>";
     }).join("");
-    $("stageFilter").innerHTML = '<option value="all">All stages</option>' + STAGE_ORDER.map(function (k) {
-      return '<option value="' + k + '"' + (state.stage === k ? " selected" : "") + ">" + esc(STAGES[k].label) + "</option>";
-    }).join("");
-    $("statusFilter").innerHTML = '<option value="all">All statuses</option>' + STATUS_ORDER.map(function (k) {
-      return '<option value="' + k + '"' + (state.status === k ? " selected" : "") + ">" + esc(STATUSES[k].label) + "</option>";
-    }).join("");
     $("newBtn").disabled = !state.canWrite;
   }
 
@@ -665,9 +659,9 @@
     var d = daysUntil(c.dueDate); return d !== null && d <= 7;
   }
   function showSpecial(which) {
-    state.period = "all"; state.stage = "all"; state.status = "all"; state.q = ""; $("search").value = "";
+    state.q = ""; $("search").value = "";
     state.urgentOnly = which === "urgent"; state.checkOnly = which === "check";
-    renderAll();
+    renderTable();
   }
   function renderAlert() {
     var html = "";
@@ -689,20 +683,19 @@
     if ($("showCheck")) $("showCheck").onclick = function () { showSpecial("check"); };
   }
 
-  function filteredCases() {
+  // Search box and alert links: one flat list across all stages and statuses.
+  function matchesFilters(c) {
     var q = state.q.trim().toLowerCase();
-    return state.cases.filter(function (c) {
-      if (!inPeriod(c)) return false;
-      if (state.stage !== "all" && c.stage !== state.stage) return false;
-      if (state.checkOnly && !needsStatusCheck(c)) return false;
-      if (state.urgentOnly && !isUrgent(c)) return false;
-      if (state.status !== "all" && c.status !== state.status) return false;
-      if (q) {
-        var hay = [c.caseNo, c.customer, c.pnr, c.saleId, c.product, c.orderRef, c.reason, c.network, c.notes].join(" ").toLowerCase();
-        if (hay.indexOf(q) < 0) return false;
-      }
-      return true;
-    }).sort(function (a, b) {
+    if (state.checkOnly && !needsStatusCheck(c)) return false;
+    if (state.urgentOnly && !isUrgent(c)) return false;
+    if (q) {
+      var hay = [c.caseNo, c.customer, c.pnr, c.saleId, c.product, c.orderRef, c.reason, c.network, c.notes].join(" ").toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  }
+  function sortCases(list) {
+    return list.slice().sort(function (a, b) {
       var k = state.sortKey, dir = state.sortDir === "asc" ? 1 : -1, r = 0;
       if (k === "amount") r = num(a.amount) - num(b.amount);
       else {
@@ -718,69 +711,105 @@
   }
 
   var DEFAULT_DIR = { amount: "desc", disputeDate: "desc", dueDate: "asc" };
-  function setSort(key) {
+  function setSort(key, sec) {
     if (state.sortKey === key) state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
     else { state.sortKey = key; state.sortDir = DEFAULT_DIR[key] || "desc"; }
-    state.refocus = key;
+    state.refocus = { key: key, sec: sec };
     savePrefs();
     renderTable();
   }
-  function sortTh(key, label, cls) {
+  function sortTh(key, label, cls, sec) {
     var on = state.sortKey === key, asc = state.sortDir === "asc";
     return '<th class="' + (cls || "") + '" aria-sort="' + (on ? (asc ? "ascending" : "descending") : "none") + '">' +
-      '<button type="button" class="sortbtn' + (on ? " on" : "") + '" data-sort="' + key + '">' + esc(label) +
+      '<button type="button" class="sortbtn' + (on ? " on" : "") + '" data-sort="' + key + '" data-sec="' + sec + '">' + esc(label) +
       '<span class="arr" aria-hidden="true">' + (on ? (asc ? "\u25B2" : "\u25BC") : "\u2195") + "</span></button></th>";
   }
 
+  // Cases tab, top to bottom. Each section opens on its first status (Pending; Defended for arbitration).
+  var SECTIONS = [["first", "First chargeback"], ["prearb", "Pre-arbitration"], ["inquiry", "Inquiries (RFI)"], ["arb", "Arbitration"]];
+
+  function caseRow(c, showStage) {
+    var due = "";
+    if (c.dueDate) {
+      var cls = "", tag = "";
+      if (c.status === "pending") {
+        var d = daysUntil(c.dueDate);
+        cls = d < 0 ? "due-late" : d <= 7 ? "due-soon" : "";
+        tag = d < 0 ? " (overdue)" : d === 0 ? " (today)" : d <= 7 ? " (" + d + "d)" : "";
+      }
+      due = '<span class="' + cls + '">' + esc(fmtDate(c.dueDate) + tag) + "</span>";
+    }
+    return '<tr tabindex="0" data-id="' + esc(c.id) + '">' +
+      '<td class="pnr">' + esc(c.pnr || "\u2014") + "</td>" +
+      "<td>" + (c.saleId ? crmLink(c.saleId) : "\u2014") + "</td>" +
+      "<td>" + esc(c.source || "\u2014") + "</td>" +
+      '<td class="num">' + esc(money(num(c.amount), c.currency)) + "</td>" +
+      "<td>" + esc(fmtDate(c.disputeDate)) + "</td>" +
+      "<td>" + due + "</td>" +
+      "<td>" + esc(fmtRange(c.travelFrom, c.travelTo)) + "</td>" +
+      (showStage ? "<td>" + esc(stageLabel(c.stage, c.network)) + "</td>" : "") +
+      '<td><span class="pill ' + statusKind(c.status) + '">' + esc(statusLabel(c.status)) + "</span>" +
+        (needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
+  }
+  function caseTable(list, sec, showStage) {
+    return '<div class="tablewrap"><table><thead><tr><th>PNR</th><th>Sale ID</th><th>Source</th>' +
+      sortTh("amount", "Amount", "num", sec) + sortTh("disputeDate", "Disputed date", "", sec) + sortTh("dueDate", "Due date", "", sec) +
+      "<th>Travel date</th>" + (showStage ? "<th>Dispute cycle</th>" : "") + "<th>Status</th></tr></thead><tbody>" +
+      list.map(function (c) { return caseRow(c, showStage); }).join("") + "</tbody></table></div>";
+  }
+
   function renderTable() {
-    var list = filteredCases();
-    var special = state.urgentOnly || state.checkOnly;
-    var title = state.urgentOnly ? "Cases needing a decision" : state.checkOnly ? "Cases to check" : "Cases";
-    $("listTitle").innerHTML = esc(title + " (" + list.length + ")") +
-      (special ? ' <button type="button" class="linkbtn clearfilter" id="clearSpecial">Show all cases</button>' : "");
-    if ($("clearSpecial")) $("clearSpecial").onclick = function () { state.urgentOnly = false; state.checkOnly = false; renderTable(); };
     var area = $("tableArea");
+    var special = state.urgentOnly || state.checkOnly, searching = !!state.q.trim();
     if (!state.cases.length) {
+      $("listTitle").textContent = "Cases";
       area.innerHTML = '<div class="empty"><p>No cases yet.</p>' +
         (state.canWrite ? '<button class="btn primary" id="emptyAdd">Add case</button>' : "") + "</div>";
       var eb = $("emptyAdd"); if (eb) eb.onclick = function () { location.hash = "#new"; };
       return;
     }
-    if (!list.length) {
-      area.innerHTML = '<div class="empty"><p>No cases match these filters.</p></div>';
-      return;
+    if (special || searching) {
+      var list = sortCases(state.cases.filter(matchesFilters));
+      var title = state.urgentOnly ? "Cases needing a decision" : state.checkOnly ? "Cases to check" : "Search results";
+      $("listTitle").innerHTML = esc(title + " (" + list.length + ")") +
+        ' <button type="button" class="linkbtn clearfilter" id="clearSpecial">Show all cases</button>';
+      $("clearSpecial").onclick = function () {
+        state.urgentOnly = false; state.checkOnly = false; state.q = ""; $("search").value = ""; renderTable();
+      };
+      area.innerHTML = list.length ? caseTable(list, "all", true) : '<div class="empty"><p>No cases match.</p></div>';
+    } else {
+      $("listTitle").textContent = "Cases";
+      area.innerHTML = SECTIONS.map(function (s) {
+        var key = s[0], statuses = STATUS_BY_STAGE[key];
+        var sel = statuses.indexOf(state.secStatus[key]) >= 0 ? state.secStatus[key] : statuses[0];
+        var inStage = state.cases.filter(function (c) { return c.stage === key; });
+        var counts = {};
+        statuses.forEach(function (k) { counts[k] = 0; });
+        inStage.forEach(function (c) { if (c.status in counts) counts[c.status]++; });
+        var rows = sortCases(inStage.filter(function (c) { return c.status === sel; }));
+        var chips = statuses.map(function (k) {
+          return '<button type="button" class="chip' + (k === sel ? " on" : "") + '" aria-pressed="' + (k === sel) + '" data-sec="' + key + '" data-st="' + k + '">' +
+            esc(STATUSES[k].label) + '<span class="cnt">' + counts[k] + "</span></button>";
+        }).join("");
+        return '<section class="casesec" aria-label="' + esc(s[1]) + '"><div class="sechead"><h3>' + esc(s[1]) + "</h3>" +
+          '<div class="chips" role="group" aria-label="' + esc(s[1] + " status") + '">' + chips + "</div></div>" +
+          (rows.length ? caseTable(rows, key, false) : '<p class="muted secempty">No ' + esc(STATUSES[sel].label.toLowerCase()) + " cases.</p>") +
+          "</section>";
+      }).join("");
+      Array.prototype.forEach.call(area.querySelectorAll(".chip"), function (b) {
+        b.onclick = function () {
+          state.secStatus[b.getAttribute("data-sec")] = b.getAttribute("data-st");
+          renderTable();
+          var again = area.querySelector('.chip[data-sec="' + b.getAttribute("data-sec") + '"][data-st="' + b.getAttribute("data-st") + '"]');
+          if (again) again.focus();
+        };
+      });
     }
-    var rows = list.map(function (c) {
-      var due = "";
-      if (c.dueDate) {
-        var cls = "", tag = "";
-        if (c.status === "pending") {
-          var d = daysUntil(c.dueDate);
-          cls = d < 0 ? "due-late" : d <= 7 ? "due-soon" : "";
-          tag = d < 0 ? " (overdue)" : d === 0 ? " (today)" : d <= 7 ? " (" + d + "d)" : "";
-        }
-        due = '<span class="' + cls + '">' + esc(fmtDate(c.dueDate) + tag) + "</span>";
-      }
-      return '<tr tabindex="0" data-id="' + esc(c.id) + '">' +
-        '<td class="pnr">' + esc(c.pnr || "\u2014") + "</td>" +
-        "<td>" + (c.saleId ? crmLink(c.saleId) : "\u2014") + "</td>" +
-        "<td>" + esc(c.source || "\u2014") + "</td>" +
-        '<td class="num">' + esc(money(num(c.amount), c.currency)) + "</td>" +
-        "<td>" + esc(fmtDate(c.disputeDate)) + "</td>" +
-        "<td>" + due + "</td>" +
-        "<td>" + esc(fmtRange(c.travelFrom, c.travelTo)) + "</td>" +
-        "<td>" + esc(stageLabel(c.stage, c.network)) + "</td>" +
-        '<td><span class="pill ' + statusKind(c.status) + '">' + esc(statusLabel(c.status)) + "</span>" +
-          (needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
-    }).join("");
-    area.innerHTML = "<table><thead><tr><th>PNR</th><th>Sale ID</th><th>Source</th>" +
-      sortTh("amount", "Amount", "num") + sortTh("disputeDate", "Disputed date") + sortTh("dueDate", "Due date") +
-      "<th>Travel date</th><th>Dispute cycle</th><th>Status</th></tr></thead><tbody>" + rows + "</tbody></table>";
     Array.prototype.forEach.call(area.querySelectorAll("th button[data-sort]"), function (btn) {
-      btn.onclick = function () { setSort(btn.getAttribute("data-sort")); };
+      btn.onclick = function () { setSort(btn.getAttribute("data-sort"), btn.getAttribute("data-sec")); };
     });
     if (state.refocus) {
-      var rb = area.querySelector('th button[data-sort="' + state.refocus + '"]');
+      var rb = area.querySelector('th button[data-sort="' + state.refocus.key + '"][data-sec="' + state.refocus.sec + '"]');
       if (rb) rb.focus();
       state.refocus = null;
     }
@@ -1230,10 +1259,8 @@
       saveCase(rec).then(function () {
         removedIds.forEach(dropAsset); addedIds = [];
         leaveGuard = null;
-        var outside = !inPeriod(rec);
-        if (outside) { state.period = "all"; savePrefs(); }
         dlg.close();
-        toast((isNew ? "Case added" : "Changes saved") + (outside ? ". Showing all time." : ""));
+        toast(isNew ? "Case added" : "Changes saved");
       }, function (e) {
         $("saveBtn").disabled = false;
         if (e && e.status === 409) showConflict();
@@ -1284,6 +1311,15 @@
     else if (!detail && listScroll) { var y = listScroll; listScroll = 0; window.scrollTo(0, y); }
     document.title = detail ? "Case - Chargeback Tracker" : "Chargeback Tracker";
   }
+  function showTab(t) {
+    state.tab = t;
+    ["cases", "stats", "tools"].forEach(function (k) {
+      var on = k === t, tab = $("tab_" + k);
+      $("pane_" + k).hidden = !on;
+      tab.classList.toggle("on", on);
+      tab.setAttribute("aria-selected", on ? "true" : "false");
+    });
+  }
   function closeDetail() { if (location.hash) location.hash = ""; else route(); }
   function route() {
     var h = location.hash, target = null;
@@ -1309,6 +1345,7 @@
     }
     state.openId = null;
     $("detailBody").innerHTML = "";
+    showTab(h === "#stats" ? "stats" : h === "#tools" ? "tools" : "cases");
     showView("list");
     renderAll();
   }
@@ -1336,7 +1373,7 @@
   function exportCsv() {
     if (!state.downloads) return;
     var head = ["Case", "Disputed on", "Respond by", "Customer", "PNR", "Sale ID", "Source", "Product", "Travel start", "Travel end", "Order ref", "Transaction date", "Network", "Reason", "Amount", "Currency", "Dispute fees", "Fees charged", "Stage", "Status", "Net loss", "Notes"];
-    var rows = filteredCases().map(function (c) {
+    var rows = sortCases(state.cases.filter(inPeriod)).map(function (c) {
       return [c.caseNo, c.disputeDate, c.dueDate, c.customer, c.pnr, c.saleId, c.source, c.product, c.travelFrom, c.travelTo, c.orderRef, c.transactionDate, c.network, c.reason, c.amount, c.currency, c.fee, c.feesCharged ? "yes" : "no", stageLabel(c.stage, c.network), statusLabel(c.status), netLoss(c), c.notes].map(csvCell).join(",");
     });
     var name = "chargebacks-" + state.period + (state.period === "custom" ? "-" + (state.from || "start") + "-to-" + (state.to || "now") : "") + ".csv";
@@ -1368,8 +1405,6 @@
   $("rangeFrom").onchange = function (e) { state.from = e.target.value; savePrefs(); renderAll(); };
   $("rangeTo").onchange = function (e) { state.to = e.target.value; savePrefs(); renderAll(); };
   $("currency").onchange = function (e) { state.currency = e.target.value; savePrefs(); renderAll(); };
-  $("stageFilter").onchange = function (e) { state.stage = e.target.value; clearSpecial(); renderTable(); };
-  $("statusFilter").onchange = function (e) { state.status = e.target.value; clearSpecial(); renderTable(); };
   $("search").oninput = function (e) { state.q = e.target.value; clearSpecial(); renderTable(); };
   $("newBtn").onclick = function () { location.hash = "#new"; };
   $("backBtn").onclick = closeDetail;

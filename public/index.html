@@ -15,7 +15,29 @@
 <div id="listView">
   <header class="top">
     <h1>Chargebacks</h1>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <a href="#cases" class="tab on" id="tab_cases" role="tab" aria-selected="true">Cases</a>
+      <a href="#stats" class="tab" id="tab_stats" role="tab" aria-selected="false">Stats</a>
+      <a href="#tools" class="tab" id="tab_tools" role="tab" aria-selected="false">Tools</a>
+    </nav>
     <div class="controls">
+      <button id="newBtn" class="btn primary">Add case</button>
+    </div>
+  </header>
+
+  <div id="pane_cases" role="tabpanel" aria-labelledby="tab_cases">
+    <div id="alertArea"></div>
+    <div class="list-head">
+      <h2 id="listTitle">Cases</h2>
+      <div class="filters">
+        <input id="search" type="search" placeholder="Search PNR, sale ID, case no." aria-label="Search cases">
+      </div>
+    </div>
+    <div id="tableArea"></div>
+  </div>
+
+  <div id="pane_stats" role="tabpanel" aria-labelledby="tab_stats" hidden>
+    <div class="controls stats-controls">
       <select id="period" class="field-sm" aria-label="Period"></select>
       <span id="customRange" class="range" hidden>
         <input type="date" id="rangeFrom" class="field-sm" aria-label="From date">
@@ -24,24 +46,11 @@
       </span>
       <select id="currency" class="field-sm" aria-label="Currency"></select>
       <button id="exportBtn" class="btn" hidden>Export CSV</button>
-      <button id="newBtn" class="btn primary">Add case</button>
     </div>
-  </header>
+    <section id="statsArea" aria-label="Statistics"></section>
+  </div>
 
-  <section id="statsArea" aria-label="Statistics"></section>
-  <div id="alertArea"></div>
-
-  <section aria-label="Cases">
-    <div class="list-head">
-      <h2 id="listTitle">Cases</h2>
-      <div class="filters">
-        <input id="search" type="search" placeholder="Search customer, order, case no." aria-label="Search cases">
-        <select id="stageFilter" class="field-sm" aria-label="Filter by stage"></select>
-        <select id="statusFilter" class="field-sm" aria-label="Filter by status"></select>
-      </div>
-    </div>
-    <div class="tablewrap" id="tableArea"></div>
-  </section>
+  <div id="pane_tools" role="tabpanel" aria-labelledby="tab_tools" hidden></div>
 </div>
 
 <main id="detailView" class="detail" hidden>
