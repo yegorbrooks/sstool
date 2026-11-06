@@ -288,6 +288,12 @@
     o.transactionDate = o.transactionDate || "";
     if (!Array.isArray(o.history)) o.history = [];
     o.docs = Array.isArray(o.docs) ? o.docs : [];
+    // One entry per stage the case has been through: when that stage's notice arrived and its deadline.
+    if (!Array.isArray(o.stageLog) || !o.stageLog.length) {
+      var rec = "";
+      o.history.forEach(function (h) { if (h.stage === o.stage && h.at && (!rec || h.at < rec)) rec = h.at; });
+      o.stageLog = [{ stage: o.stage, received: rec || o.disputeDate || "", due: o.dueDate || "" }];
+    }
     return o;
   }
 
@@ -831,6 +837,15 @@
     }).join("") + "</ol></div>";
   }
 
+  function stageDatesHtml(c) {
+    var log = c.stageLog || [];
+    if (!log.length) return "";
+    return '<div class="flow"><h4>Stage dates</h4><ol class="timeline">' + log.map(function (s) {
+      return '<li><span class="when">' + esc(stageLabel(s.stage, c.network)) + "</span><span>Received " + esc(fmtDate(s.received) || "\u2014") +
+        (s.due ? ", respond by " + esc(fmtDate(s.due)) : "") + "</span></li>";
+    }).join("") + "</ol></div>";
+  }
+
   /* ---------- document viewer ---------- */
   var viewTok = 0;
   function downloadDoc(d) {
@@ -921,6 +936,8 @@
     var c = id ? state.cases.filter(function (x) { return x.id === id; })[0] : null;
     var isNew = !c;
     c = c || { caseNo: nextCaseNo(), customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", currency: state.currency, fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", docs: [] };
+    // Dates of the stage the case is in now.
+    var cur = isNew ? { received: c.disputeDate, due: "" } : c.stageLog[c.stageLog.length - 1];
     var ro = !state.canWrite;
     var dis = ro ? " disabled" : "";
     $("detailBody").innerHTML =
@@ -941,7 +958,6 @@
         '<section class="sec"><h4>Dispute</h4><div class="grid g3">' +
           '<label class="f">Case number<input id="f_caseNo" value="' + esc(c.caseNo) + '"' + dis + "></label>" +
           '<label class="f">Date disputed<input id="f_disputeDate" type="date" value="' + esc(c.disputeDate) + '"' + dis + "></label>" +
-          '<label class="f">Respond by<input id="f_dueDate" type="date" value="' + esc(c.dueDate) + '"' + dis + "></label>" +
           '<label class="f">Card network<select id="f_network"' + dis + ">" + opts(NETWORKS, c.network) + "</select></label>" +
           '<label class="f">Reason<select id="f_reason"' + dis + ">" + reasonOptions(c.network, c.reason) + "</select></label>" +
           '<label class="f">Disputed amount<input id="f_amount" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.amount) + '"' + dis + "></label>" +
@@ -967,10 +983,13 @@
         '<div class="dlg"><section class="sec nobd"><h4>Stage and status</h4><div class="grid">' +
           '<label class="f full">Stage<select id="f_stage"' + dis + ">" + stageOpts(c.stage, c.network) + "</select></label>" +
           '<label class="f full">Status<select id="f_status"' + dis + ">" + statusOpts(c.stage, c.status) + "</select></label>" +
-          '<label class="f full">Date of this update<input id="f_stepDate" type="date" value="' + todayStr() + '"' + dis + "></label>" +
+          '<label class="f full"><span id="recvLabel"></span><input id="f_stageReceived" type="date" value="' + esc(cur.received) + '"' + dis + "></label>" +
+          '<label class="f full">Respond by<input id="f_dueDate" type="date" value="' + esc(c.dueDate) + '"' + dis + "></label>" +
+          '<label class="f full">Date of status update<input id="f_stepDate" type="date" value="' + todayStr() + '"' + dis + "></label>" +
           (!isNew && needsStatusCheck(c) ? '<div class="explain full" id="checkLive"><strong>Time to check this case.</strong> We replied on ' + esc(fmtDate(respondedOn(c))) + ", " + (-daysUntil(respondedOn(c))) + " days ago." + (ro ? "" : '<br><button class="btn" id="checkedBtn" type="button" style="margin-top:8px">Checked, still waiting</button>') + "</div>" : "") +
         "</div></section></div>" +
-        (isNew ? "" : '<div class="dlg">' + historyHtml(c) + "</div>") +
+        (isNew ? "" : '<div class="dlg">' + stageDatesHtml(c) + "</div>") +
+        (isNew || !(c.history || []).length ? "" : '<div class="dlg">' + historyHtml(c) + "</div>") +
       "</aside></div>";
 
     var dlg = { close: closeDetail };
@@ -979,19 +998,40 @@
     function autoFees() {
       if ($("f_stage").value === "arb" && $("f_status").value === "lost") $("f_feesCharged").checked = true;
     }
+    function recvLabel() {
+      $("recvLabel").textContent = stageLabel($("f_stage").value, $("f_network").value) + " received on";
+    }
     $("f_stage").onchange = function () {
-      $("f_status").innerHTML = statusOpts($("f_stage").value, $("f_status").value);
-      autoFees();
+      var st = $("f_stage").value;
+      if (isNew) {
+        $("f_status").innerHTML = statusOpts(st, $("f_status").value);
+      } else if (st === c.stage) {
+        // Back to the saved stage: restore its saved dates.
+        $("f_status").innerHTML = statusOpts(st, c.status);
+        $("f_stageReceived").value = cur.received;
+        $("f_dueDate").value = c.dueDate;
+      } else {
+        // A new stage starts with its own dates: received today by default, and a new deadline.
+        $("f_status").innerHTML = statusOpts(st, "");
+        $("f_stageReceived").value = todayStr();
+        $("f_dueDate").value = "";
+        lastAuto = "";
+        suggestDue();
+      }
+      recvLabel(); autoFees();
     };
     $("f_status").onchange = autoFees;
     // Amex gives 20 days from the notice; suggest that deadline unless the user typed their own.
-    var lastAuto = (c.network === "Amex" && c.disputeDate && c.dueDate === dstr(addDays(parseDate(c.disputeDate), 20))) ? c.dueDate : "";
+    var lastAuto = (c.network === "Amex" && cur.received && c.dueDate === dstr(addDays(parseDate(cur.received), 20))) ? c.dueDate : "";
     function suggestDue() {
       if ($("f_network").value !== "Amex") return;
-      var dd = $("f_disputeDate").value; if (!dd) return;
-      var cur = $("f_dueDate").value;
-      if (cur === "" || cur === lastAuto) { lastAuto = dstr(addDays(parseDate(dd), 20)); $("f_dueDate").value = lastAuto; }
+      var rd = $("f_stageReceived").value; if (!rd) return;
+      var due = $("f_dueDate").value;
+      if (due === "" || due === lastAuto) { lastAuto = dstr(addDays(parseDate(rd), 20)); $("f_dueDate").value = lastAuto; }
     }
+    // On a new case the stage received date follows "Date disputed" until it is edited.
+    var recvSynced = isNew;
+    $("f_stageReceived").onchange = function () { recvSynced = false; suggestDue(); };
     // Warning only: dispute filed outside Amex's usual 120-day window.
     function refreshTx() {
       var el = $("txHint"), tx = $("f_transactionDate").value, dd = $("f_disputeDate").value;
@@ -1024,13 +1064,18 @@
       var rv = $("f_reason").value;
       if (reasonOptions(net, "").indexOf('value="' + esc(rv) + '"') < 0) rv = net === "Visa" ? DEFAULT_VISA_REASON : net === "Amex" ? DEFAULT_AMEX_REASON : "";
       $("f_reason").innerHTML = reasonOptions(net, rv);
-      var st = $("f_stage").value;
+      var prev = $("f_stage").value, st = prev;
       if (stagesFor(net).indexOf(st) < 0) st = "first";
       $("f_stage").innerHTML = stageOpts(st, net);
-      $("f_status").innerHTML = statusOpts(st, $("f_status").value);
-      suggestDue(); refreshAmexBits(); autoFees();
+      if (st !== prev) $("f_stage").onchange();
+      else $("f_status").innerHTML = statusOpts(st, $("f_status").value);
+      recvLabel(); suggestDue(); refreshAmexBits(); autoFees();
     };
-    $("f_disputeDate").onchange = function () { suggestDue(); refreshTx(); };
+    $("f_disputeDate").onchange = function () {
+      if (recvSynced) $("f_stageReceived").value = $("f_disputeDate").value;
+      suggestDue(); refreshTx();
+    };
+    recvLabel();
     refreshAmexBits();
 
     /* documents */
@@ -1096,15 +1141,33 @@
       if ($("f_travelFrom").value && $("f_travelTo").value && $("f_travelTo").value < $("f_travelFrom").value) { fail("Travel end cannot be before travel start."); return null; }
       var stage = $("f_stage").value, status = $("f_status").value;
       var stepDate = $("f_stepDate").value || todayStr();
+      var received = $("f_stageReceived").value, due = $("f_dueDate").value;
+      var net = $("f_network").value;
+      var sLabel = stageLabel(stage, net);
+      if (!received) { fail("Enter the date the " + sLabel + " notice was received."); $("f_stageReceived").focus(); return null; }
+      if (due && due < received) { fail("Respond by cannot be before the received date."); $("f_dueDate").focus(); return null; }
       var history = (c.history || []).slice();
-      var label = stageLabel(stage, $("f_network").value) + ": " + statusLabel(status);
+      var stageLog = (c.stageLog || []).map(function (s) { return { stage: s.stage, received: s.received, due: s.due }; });
+      var label = sLabel + ": " + statusLabel(status);
       if (isNew) {
         var start = stage === "inquiry" ? "inquiry" : "first";
         history.push({ at: $("f_disputeDate").value, stage: start, status: "pending",
-          text: start === "inquiry" ? "Inquiry received. Nothing debited." : $("f_network").value === "Amex" ? "Dispute received." : "Dispute received. Amount debited." });
-        if (stage !== start || status !== "pending") history.push({ at: stepDate, stage: stage, status: status, text: "Case entered as " + label + "." });
-      } else if (stage !== c.stage || status !== c.status) {
-        history.push({ at: stepDate, stage: stage, status: status, text: label + "." });
+          text: start === "inquiry" ? "Inquiry received. Nothing debited." : net === "Amex" ? "Dispute received." : "Dispute received. Amount debited." });
+        if (stage !== start) history.push({ at: received, stage: stage, status: STATUS_BY_STAGE[stage][0], text: sLabel + " received" + (due ? ", respond by " + fmtDate(due) : "") + "." });
+        if (status !== STATUS_BY_STAGE[stage][0]) history.push({ at: stepDate, stage: stage, status: status, text: "Case entered as " + label + "." });
+        stageLog = [{ stage: stage, received: received, due: due }];
+      } else if (stage !== c.stage) {
+        // New stage: log its own dates; the previous stage's dates stay in the log.
+        history.push({ at: received, stage: stage, status: STATUS_BY_STAGE[stage][0], text: sLabel + " received" + (due ? ", respond by " + fmtDate(due) : "") + "." });
+        if (status !== STATUS_BY_STAGE[stage][0]) history.push({ at: stepDate, stage: stage, status: status, text: label + "." });
+        stageLog.push({ stage: stage, received: received, due: due });
+      } else {
+        if (status !== c.status) history.push({ at: stepDate, stage: stage, status: status, text: label + "." });
+        // Same stage, dates edited: keep the old values in the history.
+        var last = stageLog[stageLog.length - 1];
+        if (received !== last.received) history.push({ at: todayStr(), stage: stage, text: sLabel + " received date changed from " + (fmtDate(last.received) || "none") + " to " + fmtDate(received) + "." });
+        if (due !== (c.dueDate || "")) history.push({ at: todayStr(), stage: stage, text: "Respond by changed from " + (fmtDate(c.dueDate) || "none") + " to " + (fmtDate(due) || "none") + "." });
+        last.received = received; last.due = due;
       }
       return {
         id: c.id || uid(),
@@ -1126,11 +1189,12 @@
         fee: num($("f_fee").value),
         feesCharged: $("f_feesCharged").checked || (stage === "arb" && status === "lost"),
         disputeDate: $("f_disputeDate").value,
-        dueDate: $("f_dueDate").value,
+        dueDate: due,
         stage: stage,
         status: status,
         notes: $("f_notes").value.trim(),
         history: history,
+        stageLog: stageLog,
         docs: docs.slice(),
         createdAt: c.createdAt || Date.now(),
         checkedAt: c.checkedAt || ""
