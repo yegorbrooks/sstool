@@ -159,13 +159,7 @@
     if (sel && values.indexOf(sel) < 0) html = '<option value="' + esc(sel) + '" selected>' + esc(sel) + "</option>" + html;
     return html;
   }
-  // Documents Amex asks for when we respond (which ones apply depends on the reason code).
-  var AMEX_EVIDENCE = [
-    ["roc", "Signed record of charge (ROC) or digital authorization"],
-    ["terms", "Terms and conditions / cancellation policy"],
-    ["delivery", "Proof of delivery or tracking tied to the billing address"],
-    ["comms", "Customer communication logs"]
-  ];
+  
   var PRODUCTS = ["Ticket Cost", "Ticket Protection", "Service Fee", "Tips", "Service Fee + Ticket Protection + Tips", "Service Fee + Tips", "Service Fee + Ticket Protection", "Ticket Protection + Tips", "Full Cost"];
   var SOURCES = ["IPS", "Merlink", "Airline"];
   var CURRENCIES = ["USD", "EUR", "GBP", "MDL", "RON"];
@@ -1001,25 +995,21 @@
           '<label class="f">Product<select id="f_product"' + dis + '><option value="">Not set</option>' + productOpts(c.product) + "</select></label>" +
           '<label class="f">Source<select id="f_source"' + dis + '><option value="">Select source</option>' + opts(SOURCES, c.source) + "</select></label>" +
           '<label class="f">Travel start<input id="f_travelFrom" type="date" value="' + esc(c.travelFrom) + '"' + dis + "></label>" +
-          '<label class="f">Travel end<input id="f_travelTo" type="date" value="' + esc(c.travelTo) + '"' + dis + '><span class="hint">Return date, if any.</span></label>' +
+          '<label class="f">Travel end<input id="f_travelTo" type="date" value="' + esc(c.travelTo) + '"' + dis + "></label>" +
           '<label class="f">Order or transaction ref<input id="f_orderRef" value="' + esc(c.orderRef) + '"' + dis + '><span class="hint" id="refHint"></span></label>' +
           '<label class="f">Transaction date<input id="f_transactionDate" type="date" value="' + esc(c.transactionDate) + '"' + dis + '><span class="hint" id="txHint"></span></label>' +
         "</div></section>" +
         '<section class="sec"><h4>Dispute</h4><div class="grid g3">' +
           '<label class="f">Case number<input id="f_caseNo" value="' + esc(c.caseNo) + '"' + dis + "></label>" +
           '<label class="f">Date disputed<input id="f_disputeDate" type="date" value="' + esc(c.disputeDate) + '"' + dis + "></label>" +
-          '<label class="f">Respond by<input id="f_dueDate" type="date" value="' + esc(c.dueDate) + '"' + dis + '><span class="hint" id="dueHint">Deadline for our next decision.</span></label>' +
+          '<label class="f">Respond by<input id="f_dueDate" type="date" value="' + esc(c.dueDate) + '"' + dis + "></label>" +
           '<label class="f">Card network<select id="f_network"' + dis + ">" + opts(NETWORKS, c.network) + "</select></label>" +
-          '<label class="f">Reason<select id="f_reason"' + dis + ">" + reasonOptions(c.network, c.reason) + '</select><span class="hint" id="reasonHint"></span></label>' +
+          '<label class="f">Reason<select id="f_reason"' + dis + ">" + reasonOptions(c.network, c.reason) + "</select></label>" +
           '<label class="f">Disputed amount<input id="f_amount" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.amount) + '"' + dis + "></label>" +
-          '<label class="f">Currency<select id="f_currency"' + dis + ">" + currencyOpts(c.currency) + '</select><span class="hint">Applies to the amount and the fees.</span></label>' +
+          '<label class="f">Currency<select id="f_currency"' + dis + ">" + currencyOpts(c.currency) + "</select></label>" +
           '<label class="f">Dispute fees<input id="f_fee" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.fee) + '"' + dis + '></label>' +
           '<label class="chk chk-end"><input id="f_feesCharged" type="checkbox"' + (c.feesCharged ? " checked" : "") + dis + '> Dispute fees were charged to us</label>' +
         "</div></section>" +
-        '<section class="sec" id="evSec"' + (c.network === "Amex" ? "" : " hidden") + '><h4>Evidence for the Amex response <span class="muted" id="evCount"></span></h4><div class="evlist">' +
-          AMEX_EVIDENCE.map(function (e) {
-            return '<label class="chk"><input type="checkbox" id="f_ev_' + e[0] + '"' + (c.evidence && c.evidence[e[0]] ? " checked" : "") + dis + "> " + esc(e[1]) + "</label>";
-          }).join("") + '<span class="hint">Which documents apply depends on the reason code. Send them within the 20-day window.</span></div></section>' +
         '<section class="sec" id="docSec"><h4>Documents <span class="muted" id="docCount"></span></h4>' +
           (ro ? "" : '<div class="docadd">' +
             '<input type="file" id="f_docFile" multiple hidden>' +
@@ -1052,16 +1042,11 @@
     function autoFees() {
       if ($("f_stage").value === "arb" && $("f_status").value === "lost") $("f_feesCharged").checked = true;
     }
-    function refreshExplain() {
-      var tmp = { network: $("f_network").value, stage: $("f_stage").value, status: $("f_status").value, amount: $("f_amount").value, currency: $("f_currency").value, fee: $("f_fee").value, feesCharged: $("f_feesCharged").checked };
-      $("explainLive").textContent = num(tmp.amount) > 0 ? explain(tmp) : "";
-      refreshDecision();
-    }
     $("f_stage").onchange = function () {
       $("f_status").innerHTML = statusOpts($("f_stage").value, $("f_status").value);
-      autoFees(); refreshExplain();
+      autoFees();
     };
-    $("f_status").onchange = function () { autoFees(); refreshExplain(); };
+    $("f_status").onchange = autoFees;
     // Amex gives 20 days from the notice; suggest that deadline unless the user typed their own.
     var lastAuto = (c.network === "Amex" && c.disputeDate && c.dueDate === dstr(addDays(parseDate(c.disputeDate), 20))) ? c.dueDate : "";
     function suggestDue() {
@@ -1070,45 +1055,22 @@
       var cur = $("f_dueDate").value;
       if (cur === "" || cur === lastAuto) { lastAuto = dstr(addDays(parseDate(dd), 20)); $("f_dueDate").value = lastAuto; }
     }
-    function refreshDueHint() {
-      $("dueHint").textContent = $("f_network").value === "Amex" ? "Amex allows 20 days from the notice." : "Deadline for our next decision.";
-    }
-    // For Amex, show what to submit for the selected reason code.
-    function refreshReasonHint() {
-      var el = $("reasonHint"); el.textContent = "";
-      if ($("f_network").value !== "Amex") return;
-      var it = amexReasonInfo($("f_reason").value.split(" ")[0]);
-      if (it) el.textContent = it[3] ? it[2] : "Evidence to submit: " + it[2];
-    }
-    $("f_reason").onchange = refreshReasonHint;
-    // Amex usually decides 6 to 8 weeks after our response.
-    function refreshDecision() {
-      var el = $("decisionLive"); el.hidden = true;
-      if ($("f_network").value !== "Amex" || $("f_status").value !== "defended") return;
-      var at = "";
-      if (isNew || $("f_status").value !== c.status) at = $("f_stepDate").value;
-      else (c.history || []).forEach(function (h) { if (h.status === "defended" && h.at > at) at = h.at; });
-      if (!at) return;
-      el.textContent = "Amex usually decides 6 to 8 weeks after our response: between " + fmtShort(dstr(addDays(parseDate(at), 42))) + " and " + fmtDate(dstr(addDays(parseDate(at), 56))) + ".";
-      el.hidden = false;
-    }
-    // Cardmembers normally have 120 days from the transaction to dispute it.
+    // Warning only: dispute filed outside Amex's usual 120-day window.
     function refreshTx() {
       var el = $("txHint"), tx = $("f_transactionDate").value, dd = $("f_disputeDate").value;
-      el.className = "hint"; el.textContent = "";
+      el.className = "hint warn"; el.textContent = "";
       if ($("f_network").value !== "Amex" || !tx || !dd) return;
       var days = Math.round((parseDate(dd) - parseDate(tx)) / 86400000);
-      if (days < 0) { el.textContent = "The dispute date is before the transaction date."; el.className = "hint warn"; }
-      else if (days > 120) { el.textContent = "Filed " + days + " days after the transaction. Amex's usual window is 120 days (exceptions: non-delivery, future-dated services, cancellations), so this may be contestable."; el.className = "hint warn"; }
-      else el.textContent = "Filed " + days + " days after the transaction, within Amex's usual 120-day window.";
+      if (days < 0) el.textContent = "Dispute date is before the transaction date.";
+      else if (days > 120) el.textContent = "Filed " + days + " days after the transaction (Amex limit is usually 120).";
     }
-    // Amex normally allows a cardmember at most 2 disputes per charge.
+    // Warning only: Amex normally allows at most 2 disputes per charge.
     function refreshRef() {
       var el = $("refHint"), ref = $("f_orderRef").value.trim().toLowerCase();
-      el.className = "hint"; el.textContent = "";
+      el.className = "hint warn"; el.textContent = "";
       if ($("f_network").value !== "Amex" || !ref) return;
       var others = state.cases.filter(function (x) { return x.id !== c.id && x.network === "Amex" && (x.orderRef || "").trim().toLowerCase() === ref; }).length;
-      if (others >= 2) { el.textContent = "Amex normally allows at most 2 disputes per charge, and " + others + " other Amex cases use this reference."; el.className = "hint warn"; }
+      if (others >= 2) el.textContent = others + " other Amex cases use this reference (limit is usually 2 per charge).";
     }
     function refreshEvidence() {
       var n = AMEX_EVIDENCE.filter(function (e) { return $("f_ev_" + e[0]).checked; }).length;
@@ -1122,32 +1084,25 @@
     $("f_transactionDate").onchange = refreshTx;
     function refreshSale() {
       var id = $("f_saleId").value.trim();
-      $("saleHint").innerHTML = id ? crmLink(id).replace(">" + esc(id) + "<", ">Open in CRM<") : "From the internal CRM.";
+      $("saleHint").innerHTML = id ? crmLink(id).replace(">" + esc(id) + "<", ">Open in CRM<") : "";
     }
     $("f_saleId").oninput = refreshSale;
     refreshSale();
     $("f_orderRef").oninput = refreshRef;
-    $("f_stepDate").onchange = refreshDecision;
     $("f_network").onchange = function () {
       var net = $("f_network").value;
       // A reason code from another network does not apply here: fall back to this network's default.
       var rv = $("f_reason").value;
       if (reasonOptions(net, "").indexOf('value="' + esc(rv) + '"') < 0) rv = net === "Visa" ? DEFAULT_VISA_REASON : net === "Amex" ? DEFAULT_AMEX_REASON : "";
       $("f_reason").innerHTML = reasonOptions(net, rv);
-      refreshReasonHint();
       var st = $("f_stage").value;
       if (stagesFor(net).indexOf(st) < 0) st = "first";
       $("f_stage").innerHTML = stageOpts(st, net);
       $("f_status").innerHTML = statusOpts(st, $("f_status").value);
-      suggestDue(); refreshDueHint(); refreshAmexBits(); autoFees(); refreshExplain();
+      suggestDue(); refreshAmexBits(); autoFees();
     };
     $("f_disputeDate").onchange = function () { suggestDue(); refreshTx(); };
-    refreshDueHint(); refreshAmexBits(); refreshReasonHint();
-    $("f_amount").oninput = refreshExplain;
-    $("f_currency").onchange = refreshExplain;
-    $("f_fee").oninput = refreshExplain;
-    $("f_feesCharged").onchange = refreshExplain;
-    refreshExplain();
+    refreshAmexBits();
 
     /* documents */
     var docs = (c.docs || []).slice(), addedIds = [], removedIds = [];
@@ -1247,7 +1202,6 @@
         travelTo: $("f_travelTo").value,
         orderRef: $("f_orderRef").value.trim(),
         transactionDate: $("f_transactionDate").value,
-        evidence: AMEX_EVIDENCE.reduce(function (o, e) { if ($("f_ev_" + e[0]).checked) o[e[0]] = true; return o; }, {}),
         network: $("f_network").value,
         reason: $("f_reason").value,
         amount: num($("f_amount").value),
