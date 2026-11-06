@@ -4,11 +4,13 @@
   /* ------------------------------------------------------------------
      Model: every case has a STAGE and a STATUS within that stage.
 
+       Inquiry (RFI)      Pending / Defended / Won / Lost / Accepted
        First chargeback   Pending / Defended / Won / Lost / Accepted
        Pre-arbitration    Pending / Defended / Won / Lost / Accepted
        Arbitration        Defended / Won / Lost
 
      Money:
+       Inquiry                 never debited, no financial impact
        First CB, Pending       debited when disputed, awaiting our decision
        Defended                credited back, can still be reversed
        Pre-arb, Pending        no new debit yet, awaiting our decision
@@ -89,56 +91,50 @@
       ["13.8", "Original Credit Transaction Not Accepted"],
       ["13.9", "Non-Receipt of Cash or Load Transaction Value"] ] }
   ];
-  // Amex reason codes. Item: [code, title, what to submit (or a note when flagged), isNote].
+  // Amex reason codes: [code, title].
   var AMEX_REASONS = [
     { group: "Card member disputes", items: [
-      ["C02", "Credit not processed", "Proof the credit was issued, or the reason it wasn't owed."],
-      ["C04", "Goods returned or refused", "Return-policy terms and proof of whether goods came back."],
-      ["C05", "Goods or services cancelled", "Cancellation terms and records of what the customer agreed to."],
-      ["C08", "Goods or services not received", "Delivery confirmation, tracking, or proof of service delivery."],
-      ["C14", "Paid by other means", "Records showing the Amex charge was the only payment taken."],
-      ["C18", "No-show or CARDeposit cancelled", "Cancellation-policy terms and the reservation record."],
-      ["C28", "Cancelled recurring billing", "The cancellation date and proof billing stopped on time."],
-      ["C31", "Not as described", "The listing, order details, and what was actually delivered."],
-      ["C32", "Damaged or defective", "Proof the item shipped in good condition and any return record."],
-      ["M10", "Vehicle rental, capital damages", "Rental agreement, condition reports, and damage evidence."],
-      ["M49", "Vehicle rental, theft or loss of use", "Rental agreement, police or incident report, and loss records."] ] },
+      ["C02", "Credit not processed"],
+      ["C04", "Goods returned or refused"],
+      ["C05", "Goods or services cancelled"],
+      ["C08", "Goods or services not received"],
+      ["C14", "Paid by other means"],
+      ["C18", "No-show or CARDeposit cancelled"],
+      ["C28", "Cancelled recurring billing"],
+      ["C31", "Not as described"],
+      ["C32", "Damaged or defective"],
+      ["M10", "Vehicle rental, capital damages"],
+      ["M49", "Vehicle rental, theft or loss of use"] ] },
     { group: "Fraud", items: [
-      ["F10", "Missing imprint", "The imprint record or proof of a valid card-present method."],
-      ["F14", "Missing signature", "The signed receipt or proof of an approved no-signature method."],
-      ["F24", "No cardmember authorisation", "Proof of authorization, AVS or CVV match, and prior use."],
-      ["F29", "Card not present", "IP, device, delivery, and history tying the buyer to the card."],
-      ["F30", "EMV counterfeit", "Proof the terminal read the chip rather than the magstripe."],
-      ["F31", "EMV lost, stolen, or not received", "Proof of a valid chip-and-PIN transaction."] ] },
+      ["F10", "Missing imprint"],
+      ["F14", "Missing signature"],
+      ["F24", "No cardmember authorisation"],
+      ["F29", "Card not present"],
+      ["F30", "EMV counterfeit"],
+      ["F31", "EMV lost, stolen, or not received"] ] },
     { group: "Processing errors", items: [
-      ["P01", "Unassigned card number", "Proof the number was valid and correctly captured."],
-      ["P03", "Credit processed as charge", "Records showing the correct transaction type."],
-      ["P04", "Charge processed as credit", "Records showing the intended and actual transaction type."],
-      ["P05", "Incorrect charge amount", "The agreed price and proof of what the customer approved."],
-      ["P07", "Late submission", "Proof the charge was submitted on time."],
-      ["P08", "Duplicate charge", "Records showing each charge was a separate valid sale."],
-      ["P22", "Non-matching card number", "Proof the same card was authorized and charged."],
-      ["P23", "Currency discrepancy", "Proof of the agreed currency and the amount shown."] ] },
+      ["P01", "Unassigned card number"],
+      ["P03", "Credit processed as charge"],
+      ["P04", "Charge processed as credit"],
+      ["P05", "Incorrect charge amount"],
+      ["P07", "Late submission"],
+      ["P08", "Duplicate charge"],
+      ["P22", "Non-matching card number"],
+      ["P23", "Currency discrepancy"] ] },
     { group: "Authorization", items: [
-      ["A01", "Charge exceeds authorisation", "The authorization record and the final agreed amount."],
-      ["A02", "No valid authorisation", "Proof of a valid, approved authorization."],
-      ["A08", "Authorisation approval expired", "Proof the charge settled while the approval was valid."] ] },
+      ["A01", "Charge exceeds authorisation"],
+      ["A02", "No valid authorisation"],
+      ["A08", "Authorisation approval expired"] ] },
     { group: "Chargeback programs", items: [
-      ["FR2", "Fraud Full Recourse Program", "Amex charges back fraud disputes by default for enrolled merchants. You still have 20 days to respond.", true],
-      ["FR4", "Immediate Chargeback Program", "Amex charges back without an inquiry first. Refund within 7 calendar days to prevent the chargeback; you still have 20 days to respond.", true],
-      ["FR6", "Partial Immediate Chargeback Program", "A partial version of the immediate chargeback default. The same 7-calendar-day refund window applies.", true] ] },
+      ["FR2", "Fraud Full Recourse Program"],
+      ["FR4", "Immediate Chargeback Program"],
+      ["FR6", "Partial Immediate Chargeback Program"] ] },
     { group: "Inquiry follow-up and other", items: [
-      ["R03", "Insufficient reply", "Your reply to an inquiry lacked enough detail. Answer inquiries fully, with all requested records.", true],
-      ["R13", "No reply", "No reply reached Amex within the inquiry window. Track inquiry deadlines and reply on time.", true],
-      ["M01", "Chargeback authorisation", "You authorized the chargeback in advance. Confirm before agreeing to any chargeback authorization.", true] ] }
+      ["R03", "Insufficient reply"],
+      ["R13", "No reply"],
+      ["M01", "Chargeback authorisation"] ] }
   ];
   var DEFAULT_AMEX_REASON = "F29 Card not present";
-  function amexReasonInfo(code) {
-    for (var g = 0; g < AMEX_REASONS.length; g++)
-      for (var i = 0; i < AMEX_REASONS[g].items.length; i++)
-        if (AMEX_REASONS[g].items[i][0] === code) return AMEX_REASONS[g].items[i];
-    return null;
-  }
   var DEFAULT_VISA_REASON = "10.4 Other Fraud - Card-Absent Environment";
   // Visa and Amex use their own reason codes; other networks keep the general list.
   function reasonOptions(network, sel) {
@@ -159,16 +155,12 @@
     if (sel && values.indexOf(sel) < 0) html = '<option value="' + esc(sel) + '" selected>' + esc(sel) + "</option>" + html;
     return html;
   }
-  
+
   var PRODUCTS = ["Ticket Cost", "Ticket Protection", "Service Fee", "Tips", "Service Fee + Ticket Protection + Tips", "Service Fee + Tips", "Service Fee + Ticket Protection", "Ticket Protection + Tips", "Full Cost"];
   var SOURCES = ["IPS", "Merlink", "Airline"];
   var CURRENCIES = ["USD", "EUR", "GBP", "MDL", "RON"];
   // Cases saved before each case had its own currency are treated as this currency.
   var LEGACY_CURRENCY = "USD";
-  // Case documents. The assets store accepts only these file types.
-  var DOC_EXT = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
-    mp4: "video/mp4", webm: "video/webm", csv: "text/csv", md: "text/markdown", json: "application/json", txt: "text/plain" };
-  var DOC_ACCEPT = Object.keys(DOC_EXT).map(function (e) { return "." + e; }).join(",");
   function docExt(name) { var m = /\.([a-z0-9]+)$/i.exec(name || ""); return m ? m[1].toLowerCase() : ""; }
   function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
   var DOC_ERR = { too_large: "is over the 50 MB limit", unsupported_type: "is not a supported file type", quota_or_state: "could not be stored: storage is full", not_granted: "could not be uploaded: no permission", rate_limited: "was rate limited, try again in a moment" };
@@ -200,7 +192,6 @@
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
-  function monthKey(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
   function todayStr() {
     var d = new Date();
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -213,10 +204,6 @@
   function fmtDate(s) {
     var d = parseDate(s);
     return d ? d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
-  }
-  function monthLabel(k) {
-    var p = k.split("-");
-    return new Date(+p[0], +p[1] - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
   }
   // Formats an amount in the given currency (a case's own currency), or the selected one for totals.
   function money(n, cur) {
@@ -260,8 +247,9 @@
   }
 
   /* ---------- money per case ---------- */
+  // Inquiries (Amex RFI / retrieval) are never debited, so they carry no money in any total.
   function isInquiry(c) { return c.stage === "inquiry"; }
-  function isClosedLoss(c) { return c.status === "lost" || c.status === "accepted"; }
+  function isClosedLoss(c) { return !isInquiry(c) && (c.status === "lost" || c.status === "accepted"); }
   function isAwaitingDebit(c) { return c.stage === "first" && c.status === "pending"; }
   function feeIn(c) { return c.feesCharged ? num(c.fee) : 0; }
 
@@ -273,47 +261,11 @@
   }
   // Amount credited back (or not yet re-debited) that could still be reversed.
   function atRisk(c) {
-    if (c.stage === "inquiry") return 0;   // nothing has been debited yet
+    if (isInquiry(c)) return 0;
     if (c.status === "defended" || (c.stage === "prearb" && c.status === "pending")) {
       return num(c.amount) + (c.stage === "arb" ? num(c.fee) : 0);
     }
     return 0;
-  }
-  function amexExplain(key, a) {
-    switch (key) {
-      case "inquiry:pending": return "Amex sent an inquiry (RFI). Nothing is debited and it is not counted as pending or lost money. We have 20 days to respond with documentation; if we do not, or the proof is insufficient, Amex may raise a chargeback.";
-      case "inquiry:defended": return "We responded to the inquiry. Nothing is debited. If Amex is not satisfied it may raise a chargeback: move the case to the Chargeback stage when that notice arrives.";
-      case "inquiry:won": return "Amex closed the inquiry in our favour. No debit.";
-      case "inquiry:lost": return "The inquiry was not resolved in our favour. Nothing is debited at the inquiry stage; if Amex raises a chargeback, move the case to the Chargeback stage so the " + a + " debit is counted.";
-      case "inquiry:accepted": return "We accepted the inquiry. Nothing is debited at the inquiry stage; any debit comes with a chargeback, recorded under the Chargeback stage.";
-      case "first:pending": return "Amex debited " + a + " (direct chargeback, or after an inquiry). We have 20 days from the notice to respond with documentation; if we do not, or the proof is insufficient, the chargeback stands.";
-      case "first:defended": return "We responded. " + a + " was credited back while Amex reviews, usually 6 to 8 weeks. Amex has no pre-arbitration or arbitration, so its decision is final.";
-      case "first:won": return "Amex decided in our favour. Loss recovered.";
-      case "first:lost": return "Amex decided for the cardmember. " + a + " stays debited. Final loss, no further appeal.";
-      case "first:accepted": return "We accepted the chargeback. " + a + " stays debited as a final loss.";
-    }
-    return "";
-  }
-  function explain(c) {
-    var a = money(num(c.amount), c.currency);
-    var fee = num(c.fee);
-      if (c.network === "Amex" || c.stage === "inquiry") { var ax = amexExplain(c.stage + ":" + c.status, a); if (ax) return ax; }
-    switch (c.stage + ":" + c.status) {
-      case "first:pending": return "We were debited " + a + " when the dispute was raised. Accepting keeps the loss; defending gets the amount credited back.";
-      case "first:defended": return a + " was credited back. The bank is reviewing our defence and may still reverse it.";
-      case "first:won": return "The bank accepted our defence. Loss recovered.";
-      case "first:lost": return "The bank rejected our defence and debited " + a + " again. Final loss.";
-      case "first:accepted": return "We accepted the dispute. " + a + " stays debited as a final loss.";
-      case "prearb:pending": return "The bank started pre-arbitration. There is no new debit yet. Accepting debits " + a + " again; defending keeps the credit.";
-      case "prearb:defended": return "We defended pre-arbitration. The credit stays while the bank reviews; it may escalate to arbitration.";
-      case "prearb:won": return "The bank accepted our defence. No further debits.";
-      case "prearb:lost": return "Pre-arbitration was lost. " + a + " is debited again. Final loss.";
-      case "prearb:accepted": return "We accepted pre-arbitration. " + a + " is debited again. Final loss.";
-      case "arb:defended": return "The card brand is deciding. If it rules for the cardholder we are debited " + a + (fee ? " plus " + money(fee, c.currency) + " in dispute fees." : " plus the dispute fees.") + " No status reminder at this stage: wait for the bank's notice.";
-      case "arb:won": return "The card brand ruled for the merchant. No further debits.";
-      case "arb:lost": return "The card brand ruled for the cardholder. " + a + (fee ? " plus " + money(fee, c.currency) + " in dispute fees" : " plus dispute fees") + " debited. Final loss.";
-    }
-    return "";
   }
 
   /* ---------- case normalising (also migrates cases saved by earlier versions) ---------- */
@@ -333,14 +285,13 @@
     o.feesCharged = !!o.feesCharged;
     o.currency = o.currency || LEGACY_CURRENCY;
     o.pnr = o.pnr || ""; o.saleId = o.saleId || ""; o.product = o.product || ""; o.travelFrom = o.travelFrom || ""; o.travelTo = o.travelTo || "";
-    o.transactionDate = o.transactionDate || ""; o.evidence = (o.evidence && typeof o.evidence === "object") ? o.evidence : {};
+    o.transactionDate = o.transactionDate || "";
     if (!Array.isArray(o.history)) o.history = [];
     o.docs = Array.isArray(o.docs) ? o.docs : [];
     return o;
   }
 
   /* ---------- storage ---------- */
-  var LS_CASES = "chargebacks:cases:v1";
   var LS_PREFS = "chargebacks:prefs:v1";
 
   function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
@@ -724,7 +675,7 @@
     }
     var check = state.cases.filter(needsStatusCheck);
     if (check.length) {
-      html += '<div class="alert"><span>' + esc(plural(check.length, "case is", "cases are") + " due for a status check (45 days after our reply at the first stage, 15 days at pre-arbitration).") + '</span><button id="showCheck">Show them</button></div>';
+      html += '<div class="alert"><span>' + esc(plural(check.length, "case is", "cases are") + " due for a status check.") + '</span><button id="showCheck">Show them</button></div>';
     }
     var area = $("alertArea");
     area.innerHTML = html;
@@ -784,7 +735,7 @@
     if ($("clearSpecial")) $("clearSpecial").onclick = function () { state.urgentOnly = false; state.checkOnly = false; renderTable(); };
     var area = $("tableArea");
     if (!state.cases.length) {
-      area.innerHTML = '<div class="empty"><p>No cases yet. Add your first chargeback to start tracking.</p>' +
+      area.innerHTML = '<div class="empty"><p>No cases yet.</p>' +
         (state.canWrite ? '<button class="btn primary" id="emptyAdd">Add case</button>' : "") + "</div>";
       var eb = $("emptyAdd"); if (eb) eb.onclick = function () { location.hash = "#new"; };
       return;
@@ -885,18 +836,6 @@
   function downloadDoc(d) {
     var a = document.createElement("a"); a.href = "/api/files/" + d.id + "?download=1"; document.body.appendChild(a); a.click(); a.remove();
   }
-  function downloadDocOld(d) {
-    if (!state.downloads) { toast("Downloads are not available in this view."); return; }
-    fetch("/api/files/" + d.id).then(function (r) {
-      if (!r.ok) throw new Error("missing");
-      return r.blob();
-    }).then(function (blob) {
-      return state.downloads.save({ filename: d.name, data: blob });
-    }).then(function () {}, function (e) {
-      if (e && e.code === "declined") return;
-      toast("Could not download " + d.name + ".");
-    });
-  }
   function closeViewer() {
     viewTok++;
     var v = $("docViewer"); if (v) v.remove();
@@ -981,7 +920,7 @@
   function openDialog(id) {
     var c = id ? state.cases.filter(function (x) { return x.id === id; })[0] : null;
     var isNew = !c;
-    c = c || { caseNo: nextCaseNo(), customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", currency: state.currency, fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", evidence: {}, docs: [] };
+    c = c || { caseNo: nextCaseNo(), customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", currency: state.currency, fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", docs: [] };
     var ro = !state.canWrite;
     var dis = ro ? " disabled" : "";
     $("detailBody").innerHTML =
@@ -1007,14 +946,14 @@
           '<label class="f">Reason<select id="f_reason"' + dis + ">" + reasonOptions(c.network, c.reason) + "</select></label>" +
           '<label class="f">Disputed amount<input id="f_amount" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.amount) + '"' + dis + "></label>" +
           '<label class="f">Currency<select id="f_currency"' + dis + ">" + currencyOpts(c.currency) + "</select></label>" +
-          '<label class="f">Dispute fees<input id="f_fee" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.fee) + '"' + dis + '></label>' +
-          '<label class="chk chk-end"><input id="f_feesCharged" type="checkbox"' + (c.feesCharged ? " checked" : "") + dis + '> Dispute fees were charged to us</label>' +
+          '<label class="f">Dispute fees<input id="f_fee" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.fee) + '"' + dis + "></label>" +
+          '<label class="chk chk-end"><input id="f_feesCharged" type="checkbox"' + (c.feesCharged ? " checked" : "") + dis + "> Dispute fees were charged to us</label>" +
         "</div></section>" +
         '<section class="sec" id="docSec"><h4>Documents <span class="muted" id="docCount"></span></h4>' +
           (ro ? "" : '<div class="docadd">' +
             '<input type="file" id="f_docFile" multiple hidden>' +
             '<button class="btn" type="button" id="docBtn">Upload files</button></div>') +
-          '<ul class="doclist" id="docList"></ul><span class="hint" id="docHint"></span></section>' +
+          '<ul class="doclist" id="docList"></ul></section>' +
         '<section class="sec"><h4>Notes</h4><label class="f"><span class="sr">Notes</span><textarea id="f_notes"' + dis + ">" + esc(c.notes) + "</textarea></label></section>" +
         '<div class="err" id="dlgErr" role="alert"></div>' +
         '<div class="dlg-actions">' +
@@ -1028,10 +967,8 @@
         '<div class="dlg"><section class="sec nobd"><h4>Stage and status</h4><div class="grid">' +
           '<label class="f full">Stage<select id="f_stage"' + dis + ">" + stageOpts(c.stage, c.network) + "</select></label>" +
           '<label class="f full">Status<select id="f_status"' + dis + ">" + statusOpts(c.stage, c.status) + "</select></label>" +
-          '<label class="f full">Date of this update<input id="f_stepDate" type="date" value="' + todayStr() + '"' + dis + '><span class="hint">Used in the history when the stage or status changes.</span></label>' +
-          '<p class="explain full" id="explainLive"></p>' +
-          '<p class="explain full" id="decisionLive" hidden></p>' +
-          (!isNew && needsStatusCheck(c) ? '<div class="explain full" id="checkLive"><strong>Time to check this case.</strong> We replied on ' + esc(fmtDate(respondedOn(c))) + ', ' + (-daysUntil(respondedOn(c))) + ' days ago. Check its status with the card network.' + (ro ? "" : '<br><button class="btn" id="checkedBtn" type="button" style="margin-top:8px">Checked, still waiting</button>') + "</div>" : "") +
+          '<label class="f full">Date of this update<input id="f_stepDate" type="date" value="' + todayStr() + '"' + dis + "></label>" +
+          (!isNew && needsStatusCheck(c) ? '<div class="explain full" id="checkLive"><strong>Time to check this case.</strong> We replied on ' + esc(fmtDate(respondedOn(c))) + ", " + (-daysUntil(respondedOn(c))) + " days ago." + (ro ? "" : '<br><button class="btn" id="checkedBtn" type="button" style="margin-top:8px">Checked, still waiting</button>') + "</div>" : "") +
         "</div></section></div>" +
         (isNew ? "" : '<div class="dlg">' + historyHtml(c) + "</div>") +
       "</aside></div>";
@@ -1072,19 +1009,11 @@
       var others = state.cases.filter(function (x) { return x.id !== c.id && x.network === "Amex" && (x.orderRef || "").trim().toLowerCase() === ref; }).length;
       if (others >= 2) el.textContent = others + " other Amex cases use this reference (limit is usually 2 per charge).";
     }
-    function refreshEvidence() {
-      var n = AMEX_EVIDENCE.filter(function (e) { return $("f_ev_" + e[0]).checked; }).length;
-      $("evCount").textContent = n + " of " + AMEX_EVIDENCE.length + " ready";
-    }
-    function refreshAmexBits() {
-      $("evSec").hidden = $("f_network").value !== "Amex";
-      refreshTx(); refreshRef(); refreshEvidence();
-    }
-    AMEX_EVIDENCE.forEach(function (e) { $("f_ev_" + e[0]).onchange = refreshEvidence; });
+    function refreshAmexBits() { refreshTx(); refreshRef(); }
     $("f_transactionDate").onchange = refreshTx;
     function refreshSale() {
-      var id = $("f_saleId").value.trim();
-      $("saleHint").innerHTML = id ? crmLink(id).replace(">" + esc(id) + "<", ">Open in CRM<") : "";
+      var sid = $("f_saleId").value.trim();
+      $("saleHint").innerHTML = sid ? crmLink(sid).replace(">" + esc(sid) + "<", ">Open in CRM<") : "";
     }
     $("f_saleId").oninput = refreshSale;
     refreshSale();
@@ -1110,8 +1039,8 @@
     function renderDocs() {
       $("docCount").textContent = docs.length ? "(" + docs.length + ")" : "";
       $("docList").innerHTML = docs.length ? docs.map(function (d, i) {
-        return '<li><div class="dname"><button type="button" class="linkbtn" data-view="' + i + '" title="View">' + esc(d.name) + '</button>' +
-          '<span class="muted">' + esc(fmtSize(d.size) + " \u00b7 " + fmtDate(d.at)) + '</span></div>' +
+        return '<li><div class="dname"><button type="button" class="linkbtn" data-view="' + i + '" title="View">' + esc(d.name) + "</button>" +
+          '<span class="muted">' + esc(fmtSize(d.size) + " \u00b7 " + fmtDate(d.at)) + "</span></div>" +
           '<div class="dact"><button class="btn" type="button" data-view="' + i + '">View</button><button class="btn" type="button" data-dl="' + i + '">Download</button>' +
           (ro ? "" : '<button class="btn danger" type="button" data-rm="' + i + '">Remove</button>') + "</div></li>";
       }).join("") : '<li class="muted">No documents yet.</li>';
@@ -1129,21 +1058,9 @@
       Array.prototype.forEach.call($("docList").querySelectorAll("[data-dl]"), function (b) {
         b.onclick = function () { downloadDoc(docs[+b.getAttribute("data-dl")]); };
       });
-      if ($("docBtn")) {
-        $("docHint").textContent = state.assets !== false ? "Any file type, up to 50 MB each."
-          : "Document storage is not available in this view. Only people who can edit the published page can upload.";
-      }
     }
     if ($("docBtn")) {
-      $("docBtn").onclick = function () {
-        var go = function () { $("f_docFile").click(); };
-        if (state.assets) return go();
-        if (!(window.claude && window.claude.use)) { state.assets = false; renderDocs(); toast("Document storage works only in the published page."); return; }
-        window.claude.use("assets").then(function (a) {
-          if (a) { state.assets = a; go(); }
-          else { state.assets = false; renderDocs(); toast("Document storage is not available for you in this view."); }
-        }, function () { toast("Document storage is not available."); });
-      };
+      $("docBtn").onclick = function () { $("f_docFile").click(); };
       $("f_docFile").onchange = function () {
         var files = Array.prototype.slice.call(this.files); this.value = "";
         var chain = Promise.resolve();
@@ -1276,7 +1193,7 @@
       saveCase(rec).then(function () {
         c = rec;
         $("checkLive").hidden = true;
-        toast("Marked as checked. We will remind you again in " + followUpDays(rec) + " days.");
+        toast("Marked as checked.");
       }, function (e) {
         $("checkedBtn").disabled = false;
         if (e && e.status === 409) showConflict();
