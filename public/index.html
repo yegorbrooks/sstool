@@ -21,6 +21,12 @@
       <a href="#tools" class="tab" id="tab_tools" role="tab" aria-selected="false">Tools</a>
     </nav>
     <div class="controls">
+      <select id="period" class="field-sm" aria-label="Period"></select>
+      <span id="customRange" class="range" hidden>
+        <input type="date" id="rangeFrom" class="field-sm" aria-label="From date">
+        <span class="muted">to</span>
+        <input type="date" id="rangeTo" class="field-sm" aria-label="To date">
+      </span>
       <button id="newBtn" class="btn primary">Add case</button>
     </div>
   </header>
@@ -38,12 +44,6 @@
 
   <div id="pane_stats" role="tabpanel" aria-labelledby="tab_stats" hidden>
     <div class="controls stats-controls">
-      <select id="period" class="field-sm" aria-label="Period"></select>
-      <span id="customRange" class="range" hidden>
-        <input type="date" id="rangeFrom" class="field-sm" aria-label="From date">
-        <span class="muted">to</span>
-        <input type="date" id="rangeTo" class="field-sm" aria-label="To date">
-      </span>
       <select id="currency" class="field-sm" aria-label="Currency"></select>
       <button id="exportBtn" class="btn" hidden>Export CSV</button>
     </div>

@@ -686,6 +686,8 @@
   // Search box and alert links: one flat list across all stages and statuses.
   function matchesFilters(c) {
     var q = state.q.trim().toLowerCase();
+    // Alert lists ("Show them") show every case that needs action, whatever the period.
+    if (!state.checkOnly && !state.urgentOnly && !inPeriod(c)) return false;
     if (state.checkOnly && !needsStatusCheck(c)) return false;
     if (state.urgentOnly && !isUrgent(c)) return false;
     if (q) {
@@ -770,7 +772,7 @@
     }
     if (special || searching) {
       var list = sortCases(state.cases.filter(matchesFilters));
-      var title = state.urgentOnly ? "Cases needing a decision" : state.checkOnly ? "Cases to check" : "Search results";
+      var title = state.urgentOnly ? "Cases needing a decision" : state.checkOnly ? "Cases to check" : "Search results, " + periodText();
       $("listTitle").innerHTML = esc(title + " (" + list.length + ")") +
         ' <button type="button" class="linkbtn clearfilter" id="clearSpecial">Show all cases</button>';
       $("clearSpecial").onclick = function () {
@@ -778,11 +780,11 @@
       };
       area.innerHTML = list.length ? caseTable(list, "all", true) : '<div class="empty"><p>No cases match.</p></div>';
     } else {
-      $("listTitle").textContent = "Cases";
+      $("listTitle").textContent = "Cases, " + periodText();
       area.innerHTML = SECTIONS.map(function (s) {
         var key = s[0], statuses = STATUS_BY_STAGE[key];
         var sel = statuses.indexOf(state.secStatus[key]) >= 0 ? state.secStatus[key] : statuses[0];
-        var inStage = state.cases.filter(function (c) { return c.stage === key; });
+        var inStage = state.cases.filter(function (c) { return c.stage === key && inPeriod(c); });
         var counts = {};
         statuses.forEach(function (k) { counts[k] = 0; });
         inStage.forEach(function (c) { if (c.status in counts) counts[c.status]++; });
@@ -1259,8 +1261,10 @@
       saveCase(rec).then(function () {
         removedIds.forEach(dropAsset); addedIds = [];
         leaveGuard = null;
+        var outside = !inPeriod(rec);
+        if (outside) { state.period = "all"; savePrefs(); }
         dlg.close();
-        toast(isNew ? "Case added" : "Changes saved");
+        toast((isNew ? "Case added" : "Changes saved") + (outside ? ". Showing all time." : ""));
       }, function (e) {
         $("saveBtn").disabled = false;
         if (e && e.status === 409) showConflict();
