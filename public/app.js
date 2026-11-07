@@ -31,6 +31,20 @@
   var STAGE_ORDER = ["inquiry", "first", "prearb", "arb"];
   // Amex has no pre-arbitration or arbitration: an optional inquiry (RFI), then a single final chargeback decision.
   function stagesFor(network) { return network === "Amex" ? ["inquiry", "first"] : ["first", "prearb", "arb"]; }
+    // Stages a case can move on to (Amex: inquiry → chargeback; others: first → pre-arb → arbitration).
+  function laterStages(c) {
+    var list = stagesFor(c.network), i = list.indexOf(c.stage);
+    return i < 0 ? [] : list.slice(i + 1);
+  }
+  // Case numbers used in earlier stages (banks often issue a new one for pre-arb or arbitration).
+  function pastCaseNos(c) {
+    var seen = {}, out = [];
+    (c.stageLog || []).forEach(function (s) {
+      var n = s.caseNo;
+      if (n && n !== c.caseNo && !seen[n]) { seen[n] = 1; out.push(n); }
+    });
+    return out;
+  }
 
   var STATUSES = {
     pending:  { label: "Pending",  kind: "act" },
@@ -310,6 +324,11 @@
       o.history.forEach(function (h) { if (h.stage === o.stage && h.at && (!rec || h.at < rec)) rec = h.at; });
       o.stageLog = [{ stage: o.stage, received: rec || o.disputeDate || "", due: o.dueDate || "" }];
     }
+        o.stageLog = o.stageLog.map(function (s) { return Object.assign({}, s); });
+    // Cases saved before stages kept their own number and amount: the current stage uses the case's values.
+    var lastLog = o.stageLog[o.stageLog.length - 1];
+    if (!lastLog.caseNo) lastLog.caseNo = o.caseNo || "";
+    if (lastLog.amount == null || lastLog.amount === "") lastLog.amount = num(o.amount);
     return o;
   }
 
@@ -714,7 +733,7 @@
     if (state.checkOnly && !needsStatusCheck(c)) return false;
     if (state.urgentOnly && !isUrgent(c)) return false;
     if (q) {
-      var hay = [c.caseNo, c.customer, c.pnr, c.saleId, c.product, c.orderRef, c.reason, c.network, c.notes].join(" ").toLowerCase();
+            var hay = [c.caseNo, pastCaseNos(c).join(" "), c.customer, c.pnr, c.saleId, c.product, c.orderRef, c.reason, c.network, c.notes].join(" ").toLowerCase();
       if (hay.indexOf(q) < 0) return false;
     }
     return true;
@@ -903,12 +922,15 @@
     }).join("") + "</ol></div>";
   }
 
-  function stageDatesHtml(c) {
+    function stageDatesHtml(c) {
     var log = c.stageLog || [];
     if (!log.length) return "";
     return '<div class="flow"><h4>Stage dates</h4><ol class="timeline">' + log.map(function (s) {
-      return '<li><span class="when">' + esc(stageLabel(s.stage, c.network)) + "</span><span>Received " + esc(fmtDate(s.received) || "\u2014") +
-        (s.due ? ", respond by " + esc(fmtDate(s.due)) : "") + "</span></li>";
+      var bits = [];
+      if (s.caseNo) bits.push("Case " + s.caseNo);
+      if (s.amount) bits.push(money(num(s.amount), c.currency));
+      bits.push("Received " + (fmtDate(s.received) || "\u2014") + (s.due ? ", respond by " + fmtDate(s.due) : ""));
+      return '<li><span class="when">' + esc(stageLabel(s.stage, c.network)) + "</span><span>" + esc(bits.join(" \u00b7 ")) + "</span></li>";
     }).join("") + "</ol></div>";
   }
 
@@ -1083,8 +1105,10 @@
       "</div>" +
       '<aside class="side">' +
         '<div class="dlg"><section class="sec nobd"><h4>Stage and status</h4><div class="grid">' +
-          '<label class="f full">Stage<select id="f_stage"' + dis + ">" + stageOpts(c.stage, c.network) + "</select></label>" +
+          '<label class="f full">Stage<select id="f_stage"' + (isNew ? dis : " disabled") + ">" + stageOpts(c.stage, c.network) + "</select></label>" +
           '<label class="f full">Status<select id="f_status"' + dis + ">" + statusOpts(c.stage, c.status) + "</select></label>" +
+                    (!isNew && !ro && laterStages(c).length ? '<button class="btn full" type="button" id="moveBtn">Move to ' +
+            esc(stageLabel(laterStages(c)[0], c.network)) + "\u2026</button>" : "") +
           '<label class="f full"><span id="recvLabel"></span><input id="f_stageReceived" type="date" value="' + esc(cur.received) + '"' + dis + "></label>" +
           '<label class="f full">Respond by<input id="f_dueDate" type="date" value="' + esc(c.dueDate) + '"' + dis + "></label>" +
           '<label class="f full">Date of status update<input id="f_stepDate" type="date" value="' + todayStr() + '"' + dis + "></label>" +
@@ -1247,11 +1271,13 @@
       var stepDate = $("f_stepDate").value || todayStr();
       var received = $("f_stageReceived").value, due = $("f_dueDate").value;
       var net = $("f_network").value;
+      var caseNo = $("f_caseNo").value.trim() || c.caseNo;
+      var amount = num($("f_amount").value);
       var sLabel = stageLabel(stage, net);
       if (!received) { fail("Enter the date the " + sLabel + " notice was received."); $("f_stageReceived").focus(); return null; }
       if (due && due < received) { fail("Respond by cannot be before the received date."); $("f_dueDate").focus(); return null; }
       var history = (c.history || []).slice();
-      var stageLog = (c.stageLog || []).map(function (s) { return { stage: s.stage, received: s.received, due: s.due }; });
+      var stageLog = (c.stageLog || []).map(function (s) { return { stage: s.stage, received: s.received, due: s.due, caseNo: s.caseNo || "", amount: s.amount }; });
       var label = sLabel + ": " + statusLabel(status);
       if (isNew) {
         var start = stage === "inquiry" ? "inquiry" : "first";
@@ -1259,12 +1285,12 @@
           text: start === "inquiry" ? "Inquiry received. Nothing debited." : net === "Amex" ? "Dispute received." : "Dispute received. Amount debited." });
         if (stage !== start) history.push({ at: received, stage: stage, status: STATUS_BY_STAGE[stage][0], text: sLabel + " received" + (due ? ", respond by " + fmtDate(due) : "") + "." });
         if (status !== STATUS_BY_STAGE[stage][0]) history.push({ at: stepDate, stage: stage, status: status, text: "Case entered as " + label + "." });
-        stageLog = [{ stage: stage, received: received, due: due }];
+        stageLog = [{ stage: stage, received: received, due: due, caseNo: caseNo, amount: amount }];
       } else if (stage !== c.stage) {
         // New stage: log its own dates; the previous stage's dates stay in the log.
         history.push({ at: received, stage: stage, status: STATUS_BY_STAGE[stage][0], text: sLabel + " received" + (due ? ", respond by " + fmtDate(due) : "") + "." });
         if (status !== STATUS_BY_STAGE[stage][0]) history.push({ at: stepDate, stage: stage, status: status, text: label + "." });
-        stageLog.push({ stage: stage, received: received, due: due });
+        stageLog.push({ stage: stage, received: received, due: due, caseNo: caseNo, amount: amount });
       } else {
         if (status !== c.status) history.push({ at: stepDate, stage: stage, status: status, text: label + "." });
         // Same stage, dates edited: keep the old values in the history.
@@ -1272,11 +1298,12 @@
         if (received !== last.received) history.push({ at: todayStr(), stage: stage, text: sLabel + " received date changed from " + (fmtDate(last.received) || "none") + " to " + fmtDate(received) + "." });
         if (due !== (c.dueDate || "")) history.push({ at: todayStr(), stage: stage, text: "Respond by changed from " + (fmtDate(c.dueDate) || "none") + " to " + (fmtDate(due) || "none") + "." });
         last.received = received; last.due = due;
+        last.caseNo = caseNo; last.amount = amount;
       }
       var rec = {
         id: c.id || uid(),
         _v: c._v,
-        caseNo: $("f_caseNo").value.trim() || c.caseNo,
+        caseNo: caseNo,
         customer: c.customer || "",
         pnr: $("f_pnr").value.trim().toUpperCase(),
         saleId: $("f_saleId").value.trim(),
@@ -1288,7 +1315,7 @@
         transactionDate: $("f_transactionDate").value,
         network: $("f_network").value,
         reason: $("f_reason").value,
-        amount: num($("f_amount").value),
+        amount: amount,
         currency: $("f_currency").value,
         fee: num($("f_fee").value),
         feesCharged: $("f_feesCharged").checked || (stage === "arb" && status === "lost"),
@@ -1319,6 +1346,84 @@
         loadCases(false).then(function () { state.openId = null; route(); });
       };
     }
+
+        // The next stage's notice arrived: record its case number, dates and amount, and move the case on.
+    function openMove() {
+      if (leaveGuard && leaveGuard.isDirty()) { fail("Save or cancel your changes before moving the case to the next stage."); return; }
+      var stages = laterStages(c);
+      var m = document.createElement("div");
+      m.className = "modal"; m.setAttribute("role", "dialog"); m.setAttribute("aria-modal", "true"); m.setAttribute("aria-labelledby", "moveTitle");
+      m.innerHTML = '<div class="dlg modalbox"><h3 id="moveTitle">Move case ' + esc(c.caseNo) + " to the next stage</h3>" +
+        '<p class="muted">The ' + esc(stageLabel(c.stage, c.network)) + " case number, dates and amount stay in Stage dates.</p>" +
+        '<div class="grid">' +
+          '<label class="f full">Stage<select id="e_stage">' + stages.map(function (k) {
+            return '<option value="' + k + '">' + esc(stageLabel(k, c.network)) + "</option>";
+          }).join("") + "</select></label>" +
+          '<label class="f full">Case number for this stage<input id="e_caseNo" autocomplete="off">' +
+            '<span class="hint">If the bank kept the same number, enter ' + esc(c.caseNo) + " again.</span></label>" +
+          '<label class="f"><span id="e_recvLabel"></span><input id="e_received" type="date"></label>' +
+          '<label class="f">Respond by<input id="e_due" type="date"></label>' +
+          '<label class="f">Disputed amount (' + esc(c.currency) + ')<input id="e_amount" type="number" step="0.01" min="0" inputmode="decimal" value="' + esc(c.amount) + '"></label>' +
+        '</div><div class="err" id="e_err" role="alert"></div>' +
+        '<div class="dlg-actions"><span class="spacer"></span><button class="btn" type="button" id="e_cancel">Cancel</button>' +
+          '<button class="btn primary" type="button" id="e_ok"></button></div></div>';
+      document.body.appendChild(m);
+
+      function close() { m.remove(); document.removeEventListener("keydown", key); }
+      function key(e) { if (e.key === "Escape") close(); }
+      document.addEventListener("keydown", key);
+      function labels() {
+        var l = stageLabel($("e_stage").value, c.network);
+        $("e_recvLabel").textContent = l + " received on";
+        $("e_ok").textContent = "Move to " + l;
+      }
+      $("e_stage").onchange = labels; labels();
+      // Amex gives 20 days from the notice; suggest that unless a date was typed.
+      var auto = "";
+      $("e_received").onchange = function () {
+        if (c.network !== "Amex" || !this.value) return;
+        var due = $("e_due").value;
+        if (!due || due === auto) { auto = dstr(addDays(parseDate(this.value), 20)); $("e_due").value = auto; }
+      };
+      $("e_cancel").onclick = close;
+      $("e_caseNo").focus();
+
+      $("e_ok").onclick = function () {
+        var err = $("e_err"), stage = $("e_stage").value, no = $("e_caseNo").value.trim();
+        var received = $("e_received").value, due = $("e_due").value, amt = num($("e_amount").value);
+        function bad(id, msg) { err.textContent = msg; $(id).focus(); }
+        if (!no) return bad("e_caseNo", "Enter the case number for this stage.");
+        if (!received) return bad("e_received", "Enter the date the notice was received.");
+        if (!due) return bad("e_due", "Enter the respond-by date.");
+        if (due < received) return bad("e_due", "Respond by cannot be before the received date.");
+        if (amt <= 0) return bad("e_amount", "Enter the disputed amount.");
+
+        var lbl = stageLabel(stage, c.network), first = STATUS_BY_STAGE[stage][0];
+        var rec = norm(c);
+        rec.history = rec.history.concat([{ at: received, stage: stage, status: first,
+          text: lbl + " received, case " + no + ", respond by " + fmtDate(due) + "." }]);
+        if (no !== c.caseNo) rec.history.push({ at: received, stage: stage,
+          text: "Case number changed from " + c.caseNo + " (" + stageLabel(c.stage, c.network) + ") to " + no + "." });
+        if (amt !== num(c.amount)) rec.history.push({ at: received, stage: stage,
+          text: "Disputed amount changed from " + money(num(c.amount), c.currency) + " to " + money(amt, c.currency) + "." });
+        rec.stageLog = rec.stageLog.concat([{ stage: stage, received: received, due: due, caseNo: no, amount: amt }]);
+        rec.stage = stage; rec.status = first;
+        rec.caseNo = no; rec.amount = amt; rec.dueDate = due;
+        rec.checkedAt = "";   // the status-check reminder starts over for the new stage
+
+        $("e_ok").disabled = true; err.textContent = "";
+        saveCase(rec).then(function () {
+          close();
+          leaveGuard = null; state.openId = null;
+          route();   // reopen the case page with the saved version
+          toast("Moved to " + lbl + ".");
+        }, function (e) {
+          if (e && e.status === 409) { close(); showConflict(); }
+          else { $("e_ok").disabled = false; err.textContent = "Could not save. Nothing was changed."; }
+        });
+      };
+    }
+    if ($("moveBtn")) $("moveBtn").onclick = openMove;
 
     REQUIRED_FIELDS.forEach(function (r) {
       var el = $(r[0]);

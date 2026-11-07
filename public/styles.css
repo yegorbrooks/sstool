@@ -348,3 +348,14 @@ label.f .invalid { border-color: var(--loss); box-shadow: 0 0 0 1px var(--loss);
 .whoami a { color: var(--accent); font-weight: 600; text-decoration: none; }
 .whoami a:hover { text-decoration: underline; }
 .timeline .by { white-space: nowrap; }
+
+/* move to next stage dialog */
+.modal {
+  position: fixed; inset: 0; z-index: 90; background: rgba(20, 24, 22, .45);
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.modalbox { width: 100%; max-width: 520px; max-height: 100%; overflow: auto; }
+.modalbox h3 { margin: 0 0 6px; font-size: 18px; }
+.modalbox > p { margin: 0 0 16px; font-size: 13.5px; }
+.grid .btn.full { width: 100%; }
