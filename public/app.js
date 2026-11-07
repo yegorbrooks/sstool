@@ -661,8 +661,7 @@
   }
   function showSpecial(which) {
     state.q = ""; $("search").value = "";
-    state.urgentOnly = which === "urgent"; state.checkOnly = which === "check";
-    renderTable();
+    location.hash = which === "urgent" ? "#urgent" : "#check";
   }
   function renderAlert() {
     var html = "";
@@ -774,10 +773,11 @@
     if (special || searching) {
       var list = sortCases(state.cases.filter(matchesFilters));
       var title = state.urgentOnly ? "Cases needing a decision" : state.checkOnly ? "Cases to check" : "Search results, " + periodText();
-      $("listTitle").innerHTML = esc(title + " (" + list.length + ")") +
-        ' <button type="button" class="linkbtn clearfilter" id="clearSpecial">Show all cases</button>';
+      $("listTitle").innerHTML = '<button type="button" class="btn backall" id="clearSpecial">&larr; All cases</button> ' +
+        esc(title + " (" + list.length + ")");
       $("clearSpecial").onclick = function () {
-        state.urgentOnly = false; state.checkOnly = false; state.q = ""; $("search").value = ""; renderTable();
+        state.q = ""; $("search").value = "";
+        if (state.urgentOnly || state.checkOnly) location.hash = "#cases"; else renderTable();
       };
       area.innerHTML = list.length ? caseTable(list, "all", true) : '<div class="empty"><p>No cases match.</p></div>';
     } else {
@@ -1326,7 +1326,10 @@
       tab.setAttribute("aria-selected", on ? "true" : "false");
     });
   }
-  function closeDetail() { if (location.hash) location.hash = ""; else route(); }
+  function closeDetail() {
+    var back = state.listHash || "";
+    if (location.hash !== back) location.hash = back; else route();
+  }
   function route() {
     var h = location.hash, target = null;
     if (h.indexOf("#case/") === 0) {
@@ -1351,6 +1354,9 @@
     }
     state.openId = null;
     $("detailBody").innerHTML = "";
+    state.urgentOnly = h === "#urgent";
+    state.checkOnly = h === "#check";
+    state.listHash = h;
     showTab(h === "#stats" ? "stats" : h === "#tools" ? "tools" : "cases");
     showView("list");
     renderAll();
@@ -1411,7 +1417,14 @@
   $("rangeFrom").onchange = function (e) { state.from = e.target.value; savePrefs(); renderAll(); };
   $("rangeTo").onchange = function (e) { state.to = e.target.value; savePrefs(); renderAll(); };
   $("currency").onchange = function (e) { state.currency = e.target.value; savePrefs(); renderAll(); };
-  $("search").oninput = function (e) { state.q = e.target.value; clearSpecial(); renderTable(); };
+  $("search").oninput = function (e) {
+    state.q = e.target.value; clearSpecial();
+    if (location.hash === "#urgent" || location.hash === "#check") {
+      history.replaceState(null, "", location.pathname + location.search + "#cases");
+      state.listHash = "#cases";
+    }
+    renderTable();
+  };
   $("newBtn").onclick = function () { location.hash = "#new"; };
   $("backBtn").onclick = closeDetail;
   window.addEventListener("hashchange", route);

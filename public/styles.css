@@ -376,3 +376,7 @@ a.crm:hover { color: var(--accent); }
 
 /* status dropdown in each case section */
 .secstatus { min-width: 170px; }
+
+/* "All cases" button above a filtered list */
+.list-head h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.backall { height: 32px; padding: 0 12px; font-size: 14px; }
