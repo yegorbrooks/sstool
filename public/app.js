@@ -173,7 +173,7 @@
     sortKey: "disputeDate",
     sortDir: "desc",
     tab: "cases",
-    secStatus: {},
+    status: "pending",
     q: "",
     currency: "USD",
     checkOnly: false,
@@ -775,6 +775,8 @@
   function renderTable() {
     var area = $("tableArea");
     var special = state.urgentOnly || state.checkOnly, searching = !!state.q.trim();
+    var sf = $("statusFilter");
+    sf.hidden = special || searching || !state.cases.length;
     if (!state.cases.length) {
       $("listTitle").textContent = "Cases";
       area.innerHTML = '<div class="empty"><p>No cases yet.</p>' +
@@ -794,23 +796,24 @@
       area.innerHTML = list.length ? caseTable(list, "all", true) : '<div class="empty"><p>No cases match.</p></div>';
     } else {
       $("listTitle").textContent = "Cases, " + periodText();
-      area.innerHTML = checkQueue() + SECTIONS.map(function (s) {
-        var key = s[0], statuses = STATUS_BY_STAGE[key];
-        var sel = statuses.indexOf(state.secStatus[key]) >= 0 ? state.secStatus[key] : statuses[0];
-        var inStage = state.cases.filter(function (c) { return c.stage === key && inPeriod(c); });
-        var counts = {};
-        statuses.forEach(function (k) { counts[k] = 0; });
-        inStage.forEach(function (c) { if (c.status in counts) counts[c.status]++; });
-        var rows = sortCases(inStage.filter(function (c) { return c.status === sel; }));
-        var picker = '<select class="field-sm secstatus" data-sec="' + key + '" aria-label="' + esc(s[1] + " status") + '">' +
-          statuses.map(function (k) {
-            return '<option value="' + k + '"' + (k === sel ? " selected" : "") + ">" + esc(STATUSES[k].label + " (" + counts[k] + ")") + "</option>";
-          }).join("") + "</select>";
-        return '<section class="casesec" aria-label="' + esc(s[1]) + '"><div class="sechead"><h3>' + esc(s[1]) + "</h3>" +
-          picker + "</div>" +
-          (rows.length ? caseTable(rows, key, false) : '<p class="muted secempty">No ' + esc(STATUSES[sel].label.toLowerCase()) + " cases.</p>") +
+      var sel = STATUSES[state.status] ? state.status : "pending";
+      var inPer = state.cases.filter(inPeriod);
+      var counts = {};
+      STATUS_ORDER.forEach(function (k) { counts[k] = 0; });
+      inPer.forEach(function (c) { if (c.status in counts) counts[c.status]++; });
+      sf.innerHTML = STATUS_ORDER.map(function (k) {
+        return '<option value="' + k + '"' + (k === sel ? " selected" : "") + ">" + esc(STATUSES[k].label + " (" + counts[k] + ")") + "</option>";
+      }).join("");
+      area.innerHTML = SECTIONS.map(function (s) {
+        var key = s[0];
+        var rows = sortCases(inPer.filter(function (c) { return c.stage === key && c.status === sel; }));
+        var lbl = STATUSES[sel].label.toLowerCase();
+        var empty = STATUS_BY_STAGE[key].indexOf(sel) < 0 ? s[1] + " has no " + lbl + " status." : "No " + lbl + " cases.";
+        return '<section class="casesec" aria-label="' + esc(s[1]) + '"><div class="sechead"><h3>' + esc(s[1]) + "</h3></div>" +
+          (rows.length ? caseTable(rows, key, false) : '<p class="muted secempty">' + esc(empty) + "</p>") +
           "</section>";
       }).join("");
+
       Array.prototype.forEach.call(area.querySelectorAll("select.secstatus"), function (sl) {
         sl.onchange = function () {
           var sec = sl.getAttribute("data-sec");
@@ -1440,6 +1443,7 @@
     }
     renderTable();
   };
+  $("statusFilter").onchange = function (e) { state.status = e.target.value; renderTable(); };
   $("newBtn").onclick = function () { location.hash = "#new"; };
   $("backBtn").onclick = closeDetail;
   window.addEventListener("hashchange", route);
