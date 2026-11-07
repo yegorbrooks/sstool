@@ -1306,7 +1306,6 @@
       // Existing case: log every field that was edited, plus documents added or removed.
       if (!isNew) editLog(c, rec).forEach(function (t) { rec.history.push({ at: todayStr(), stage: stage, text: t + "." }); });
       return rec;
-  
     }
 
     // Someone else saved this case after we opened it: our save was refused, nothing was overwritten.
