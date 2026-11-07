@@ -245,6 +245,22 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.hidden = true; }, 3200);
   }
+  function personName(email) {
+    if (!email) return "";
+    return String(email).split("@")[0].split(/[._-]+/).filter(Boolean).map(function (w) {
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    }).join(" ");
+  }
+  function byHtml(email) {
+    return email ? ' <span class="muted by" title="' + esc(email) + '">\u00b7 ' + esc(personName(email)) + "</span>" : "";
+  }
+  function whenStr(ms) { return ms ? fmtDate(dstr(new Date(ms))) : ""; }
+  function renderWho() {
+    var w = $("whoami");
+    if (!state.me) { w.hidden = true; return; }
+    w.innerHTML = '<span title="' + esc(state.me) + '">' + esc(state.me) + '</span><a href="/cdn-cgi/access/logout">Sign out</a>';
+    w.hidden = false;
+  }
 
   /* ---------- money per case ---------- */
   // Inquiries (Amex RFI / retrieval) are never debited, so they carry no money in any total.
@@ -316,10 +332,11 @@
   function saveCase(c) {
     c.updatedAt = Date.now();
     var ver = c._v != null ? String(c._v) : "new";
-    return api("PUT", "/api/cases/" + encodeURIComponent(c.id), c, { "x-version": ver }).then(function (j) {
-      c._v = j.v;
+        return api("PUT", "/api/cases/" + encodeURIComponent(c.id), c, { "x-version": ver }).then(function (j) {
+      var saved = j.case || c;
+      saved._v = j.v; c._v = j.v;
       var i = state.cases.findIndex(function (x) { return x.id === c.id; });
-      if (i >= 0) state.cases[i] = norm(c); else state.cases.push(norm(c));
+      if (i >= 0) state.cases[i] = norm(saved); else state.cases.push(norm(saved));
       renderAll();
     }, function (e) { if (e.status !== 409) toast("Could not save: " + e.message); throw e; });
   }
@@ -350,6 +367,7 @@
       setTimeout(function () { URL.revokeObjectURL(u); }, 2000); return Promise.resolve();
     } };
     $("exportBtn").hidden = false;
+    api("GET", "/api/me").then(function (j) { state.me = j.email || ""; renderWho(); }, function () {});
     loadCases(true);
     setInterval(function () { if (!document.hidden) loadCases(false); }, 30000);
   }
@@ -881,7 +899,7 @@
     var hist = (c.history || []).slice().reverse();
     if (!hist.length) return "";
     return '<div class="flow"><h4>History</h4><ol class="timeline">' + hist.map(function (h) {
-      return '<li><span class="when">' + esc(fmtDate(h.at)) + "</span><span>" + esc(h.text) + "</span></li>";
+            return '<li><span class="when">' + esc(fmtDate(h.at)) + "</span><span>" + esc(h.text) + byHtml(h.by) + "</span></li>";
     }).join("") + "</ol></div>";
   }
 
@@ -969,6 +987,42 @@
     ["f_caseNo", "Case number"], ["f_disputeDate", "Date disputed"], ["f_dueDate", "Respond by"],
     ["f_network", "Card network"], ["f_reason", "Reason"], ["f_amount", "Disputed amount"]
   ];
+  // Fields whose edits are written to the case history.
+  var TRACKED = [
+    ["caseNo", "Case number"], ["pnr", "PNR"], ["saleId", "Sale ID"], ["product", "Product"], ["source", "Source"],
+    ["travelFrom", "Travel start", "date"], ["travelTo", "Travel end", "date"], ["orderRef", "Transaction ref"],
+    ["transactionDate", "Transaction date", "date"], ["disputeDate", "Date disputed", "date"], ["network", "Card network"],
+    ["reason", "Reason"], ["amount", "Disputed amount", "money"], ["currency", "Currency"], ["fee", "Dispute fees", "money"],
+    ["feesCharged", "Fees charged", "bool"], ["notes", "Notes", "text"]
+  ];
+  function showVal(v, kind, cur) {
+    if (kind === "bool") return v ? "yes" : "no";
+    if (v === "" || v == null) return "none";
+    if (kind === "date") return fmtDate(v);
+    if (kind === "money") return money(num(v), cur);
+    return String(v);
+  }
+  function editLog(a, b) {
+    var out = [];
+    TRACKED.forEach(function (f) {
+      var k = f[0], x = a[k], y = b[k];
+      if (f[2] === "money") { if (num(x) === num(y)) return; }
+      else if (f[2] === "bool") { if (!!x === !!y) return; }
+      else if (String(x == null ? "" : x) === String(y == null ? "" : y)) return;
+      out.push(f[2] === "text" ? f[1] + " edited" : f[1] + " changed from " + showVal(x, f[2], a.currency) + " to " + showVal(y, f[2], b.currency));
+    });
+    var had = {}, has = {};
+    (a.docs || []).forEach(function (d) { had[d.id] = 1; });
+    (b.docs || []).forEach(function (d) { has[d.id] = 1; if (!had[d.id]) out.push("Document added: " + d.name); });
+    (a.docs || []).forEach(function (d) { if (!has[d.id]) out.push("Document removed: " + d.name); });
+    return out;
+  }
+  function whoLine(c) {
+    var parts = [];
+    if (c.createdBy) parts.push("Added by " + esc(personName(c.createdBy)) + (c.createdAt ? " on " + esc(whenStr(c.createdAt)) : ""));
+    if (c.updatedBy) parts.push("Last changed by " + esc(personName(c.updatedBy)) + (c.updatedAt ? " on " + esc(whenStr(c.updatedAt)) : ""));
+    return parts.length ? '<span class="muted">' + parts.join(" \u00b7 ") + "</span>" : "";
+  }
 
   // The open case page registers this so leaving it can warn about unsaved changes.
   var leaveGuard = null;
@@ -990,8 +1044,8 @@
     var dis = ro ? " disabled" : "";
     $("detailBody").innerHTML =
       '<div class="case-head"><h3 id="dlgTitle">' + (isNew ? "Add case" : "Case " + esc(c.caseNo)) + "</h3>" +
-        (!isNew && (c.customer || c.pnr || c.saleId) ? '<span class="muted">' + [c.customer ? esc(c.customer) : "", c.pnr ? "PNR " + esc(c.pnr) : "", c.saleId ? "Sale " + crmLink(c.saleId) : ""].filter(Boolean).join(" \u00b7 ") + "</span>" : "") + "</div>" +
-      '<div class="case-layout">' +
+        (!isNew && (c.customer || c.pnr || c.saleId) ? '<span class="muted">' + [c.customer ? esc(c.customer) : "", c.pnr ? "PNR " + esc(c.pnr) : "", c.saleId ? "Sale " + crmLink(c.saleId) : ""].filter(Boolean).join(" \u00b7 ") + "</span>" : "") +
+        (isNew ? "" : whoLine(c)) + "</div>" +      '<div class="case-layout">' +
       '<div class="dlg">' +
         '<section class="sec"><h4>Booking</h4><div class="grid g3">' +
           '<label class="f">PNR<input id="f_pnr" class="pnr-in" maxlength="12" autocapitalize="characters" autocomplete="off" value="' + esc(c.pnr) + '"' + dis + "></label>" +
@@ -1136,8 +1190,7 @@
       $("docCount").textContent = docs.length ? "(" + docs.length + ")" : "";
       $("docList").innerHTML = docs.length ? docs.map(function (d, i) {
         return '<li><div class="dname"><button type="button" class="linkbtn" data-view="' + i + '" title="View">' + esc(d.name) + "</button>" +
-          '<span class="muted">' + esc(fmtSize(d.size) + " \u00b7 " + fmtDate(d.at)) + "</span></div>" +
-          '<div class="dact"><button class="btn" type="button" data-view="' + i + '">View</button><button class="btn" type="button" data-dl="' + i + '">Download</button>' +
+          '<span class="muted">' + esc(fmtSize(d.size) + " \u00b7 " + fmtDate(d.at) + (d.by ? " \u00b7 " + personName(d.by) : "")) + "</span></div>" +          '<div class="dact"><button class="btn" type="button" data-view="' + i + '">View</button><button class="btn" type="button" data-dl="' + i + '">Download</button>' +
           (ro ? "" : '<button class="btn danger" type="button" data-rm="' + i + '">Remove</button>') + "</div></li>";
       }).join("") : '<li class="muted">No documents yet.</li>';
       Array.prototype.forEach.call($("docList").querySelectorAll("[data-rm]"), function (b) {
@@ -1164,7 +1217,7 @@
           chain = chain.then(function () {
             return state.assets.upload(f, { type: f.type || "application/octet-stream" }).then(function (r) {
               addedIds.push(r.id);
-              docs.push({ id: r.id, name: f.name, size: r.sizeBytes, type: r.contentType, at: todayStr() });
+              docs.push({ id: r.id, name: f.name, size: r.sizeBytes, type: r.contentType, at: todayStr(), by: state.me || "" });
               renderDocs();
             }, function (e) { toast(f.name + " " + (DOC_ERR[e && e.code] || "could not be uploaded") + "."); });
           });
@@ -1173,7 +1226,7 @@
     }
     renderDocs();
 
-    function collect() {
+        function collect() {
       if (isNew) {
         var missing = REQUIRED_FIELDS.filter(function (r) {
           var el = $(r[0]), v = String(el.value || "").trim();
@@ -1220,7 +1273,7 @@
         if (due !== (c.dueDate || "")) history.push({ at: todayStr(), stage: stage, text: "Respond by changed from " + (fmtDate(c.dueDate) || "none") + " to " + (fmtDate(due) || "none") + "." });
         last.received = received; last.due = due;
       }
-      return {
+      var rec = {
         id: c.id || uid(),
         _v: c._v,
         caseNo: $("f_caseNo").value.trim() || c.caseNo,
@@ -1250,6 +1303,10 @@
         createdAt: c.createdAt || Date.now(),
         checkedAt: c.checkedAt || ""
       };
+      // Existing case: log every field that was edited, plus documents added or removed.
+      if (!isNew) editLog(c, rec).forEach(function (t) { rec.history.push({ at: todayStr(), stage: stage, text: t + "." }); });
+      return rec;
+  
     }
 
     // Someone else saved this case after we opened it: our save was refused, nothing was overwritten.

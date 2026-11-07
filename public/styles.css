@@ -341,3 +341,10 @@ label.f .invalid { border-color: var(--loss); box-shadow: 0 0 0 1px var(--loss);
   .doclist li { flex-direction: column; align-items: stretch; }
   .doclist .dact { justify-content: flex-end; }
 }
+
+/* signed-in account + authors */
+.whoami { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); }
+.whoami[hidden] { display: none; }
+.whoami a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.whoami a:hover { text-decoration: underline; }
+.timeline .by { white-space: nowrap; }

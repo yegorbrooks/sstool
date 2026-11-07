@@ -33,6 +33,19 @@ async function accessUser(req, env) {
   }
 }
 
+// Credits a save to the signed-in user. History entries and documents already saved keep
+// their author; anything new in this save is credited to whoever is saving now.
+function stampAuthor(body, old, user) {
+  const kept = old && Array.isArray(old.history) ? old.history : [];
+  const sent = Array.isArray(body.history) ? body.history : [];
+  body.history = kept.concat(sent.slice(kept.length).map((h) => Object.assign({}, h, { by: user })));
+  const oldDocs = new Map(((old && old.docs) || []).map((d) => [d.id, d]));
+  body.docs = (body.docs || []).map((d) => Object.assign({}, d, { by: oldDocs.has(d.id) ? oldDocs.get(d.id).by : user }));
+  body.createdBy = old ? old.createdBy || "" : user;
+  body.updatedBy = user;
+  body.updatedAt = Date.now();
+}
+
 export default {
   async fetch(req, env) {
     const p = new URL(req.url).pathname, url = new URL(req.url);
@@ -40,12 +53,14 @@ export default {
 
     // Every API call needs a valid @flyluxury.com login.
     // Local development only: set DEV=1 in a .dev.vars file (never in production) to skip the check.
+    let user = env.DEV_USER || "dev@localhost";
     if (env.DEV !== "1") {
-      const user = await accessUser(req, env);
+      user = await accessUser(req, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
     }
 
     try {
+      if (p === "/api/me" && req.method === "GET") return json({ email: user });
       if (p === "/api/cases" && req.method === "GET") {
         const { results } = await env.DB.prepare("SELECT data, updated_at FROM cases").all();
         // _v is the case's version: the browser sends it back when saving so we can spot overwrites.
@@ -56,6 +71,8 @@ export default {
         const body = await req.json();
         body.id = m[1];
         delete body._v;
+        const row = await env.DB.prepare("SELECT data FROM cases WHERE id = ?1").bind(m[1]).first();
+        stampAuthor(body, row ? JSON.parse(row.data) : null, user);
         const data = JSON.stringify(body);
         const base = req.headers.get("x-version");
         const v = Math.max(Date.now(), (Number(base) || 0) + 1);
@@ -77,7 +94,7 @@ export default {
             "INSERT INTO cases (id, data, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET data = ?2, updated_at = ?3"
           ).bind(m[1], data, v).run();
         }
-        return json({ ok: true, v });
+        return json({ ok: true, v, case: body });
       }
       if (m && req.method === "DELETE") {
         const row = await env.DB.prepare("SELECT data FROM cases WHERE id = ?1").bind(m[1]).first();
@@ -86,6 +103,7 @@ export default {
           if (docs.length) await env.FILES.delete(docs);
         }
         await env.DB.prepare("DELETE FROM cases WHERE id = ?1").bind(m[1]).run();
+        console.log("Case " + m[1] + " deleted by " + user);
         return json({ ok: true });
       }
       if (p === "/api/files" && req.method === "POST") {
@@ -95,7 +113,7 @@ export default {
         const id = crypto.randomUUID();
         const type = req.headers.get("content-type") || "application/octet-stream";
         const name = decodeURIComponent(req.headers.get("x-filename") || "file");
-        await env.FILES.put(id, req.body, { httpMetadata: { contentType: type }, customMetadata: { name } });
+        await env.FILES.put(id, req.body, { httpMetadata: { contentType: type }, customMetadata: { name, by: user } });
         return json({ id, sizeBytes: len, contentType: type });
       }
       m = p.match(/^\/api\/files\/([0-9a-f-]{36})$/);
