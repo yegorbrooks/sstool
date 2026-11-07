@@ -707,10 +707,10 @@
   }
 
   // Search box and alert links: one flat list across all stages and statuses.
+  function isOpenCase(c) { return c.status === "pending" || c.status === "defended"; }
+  function inList(c) { return isOpenCase(c) || inPeriod(c); }
   function matchesFilters(c) {
     var q = state.q.trim().toLowerCase();
-    // Alert lists ("Show them") show every case that needs action, whatever the period.
-    if (!state.checkOnly && !state.urgentOnly && !inPeriod(c)) return false;
     if (state.checkOnly && !needsStatusCheck(c)) return false;
     if (state.urgentOnly && !isUrgent(c)) return false;
     if (q) {
@@ -815,8 +815,8 @@
     } else {
       $("listTitle").textContent = "Cases, " + periodText();
       var sel = STATUSES[state.status] ? state.status : "pending";
-      var inPer = state.cases.filter(inPeriod);
-      var counts = {};
+      $("listTitle").textContent = sel === "pending" || sel === "defended" ? "Cases" : "Cases, " + periodText();
+      var inPer = state.cases.filter(inList);
       STATUS_ORDER.forEach(function (k) { counts[k] = 0; });
       inPer.forEach(function (c) { if (c.status in counts) counts[c.status]++; });
       sf.innerHTML = STATUS_ORDER.map(function (k) {
@@ -1037,7 +1037,7 @@
   function openDialog(id) {
     var c = id ? state.cases.filter(function (x) { return x.id === id; })[0] : null;
     var isNew = !c;
-    c = c || { caseNo: nextCaseNo(), customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", currency: state.currency, fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", docs: [] };
+    c = c || {customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", currency: state.currency, fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", docs: [] };
     // Dates of the stage the case is in now.
     var cur = isNew ? { received: c.disputeDate, due: "" } : c.stageLog[c.stageLog.length - 1];
     var ro = !state.canWrite;
@@ -1351,7 +1351,7 @@
         $("delBtn").dataset.sure = "1"; $("delBtn").textContent = "Click again to delete"; return;
       }
       removeCase(c.id).then(function () {
-        (c.docs || []).concat(docs).forEach(function (d) { dropAsset(d.id); });
+        if (leaveGuard) leaveGuard.discard();   // only files uploaded during this visit and never saved
         leaveGuard = null;
         dlg.close(); toast("Case deleted");
       }, function () {});
@@ -1439,15 +1439,6 @@
   window.addEventListener("beforeunload", function (e) {
     if (leaveGuard && leaveGuard.isDirty()) { e.preventDefault(); e.returnValue = ""; }
   });
-
-  function nextCaseNo() {
-    var max = 0;
-    state.cases.forEach(function (c) {
-      var m = /(\d+)$/.exec(c.caseNo || "");
-      if (m) max = Math.max(max, parseInt(m[1], 10));
-    });
-    return "CB-" + String(max + 1).padStart(4, "0");
-  }
 
   /* ---------- export ---------- */
   function csvCell(v) {

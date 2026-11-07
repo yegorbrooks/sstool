@@ -64,7 +64,7 @@ export default {
       if (p === "/api/cases" && req.method === "GET") {
         const { results } = await env.DB.prepare("SELECT data, updated_at FROM cases").all();
         // _v is the case's version: the browser sends it back when saving so we can spot overwrites.
-        return json(results.map((r) => Object.assign(JSON.parse(r.data), { _v: r.updated_at })));
+        return json(results.map((r) => Object.assign(JSON.parse(r.data), { _v: r.updated_at })).filter((c) => !c.deleted));
       }
       let m = p.match(/^\/api\/cases\/([\w-]+)$/);
       if (m && req.method === "PUT") {
@@ -72,7 +72,9 @@ export default {
         body.id = m[1];
         delete body._v;
         const row = await env.DB.prepare("SELECT data FROM cases WHERE id = ?1").bind(m[1]).first();
-        stampAuthor(body, row ? JSON.parse(row.data) : null, user);
+        const old = row ? JSON.parse(row.data) : null;
+        if (old && old.deleted) return json({ error: "This case was deleted", code: "conflict" }, 409);
+        stampAuthor(body, old, user);
         const data = JSON.stringify(body);
         const base = req.headers.get("x-version");
         const v = Math.max(Date.now(), (Number(base) || 0) + 1);
@@ -97,13 +99,20 @@ export default {
         return json({ ok: true, v, case: body });
       }
       if (m && req.method === "DELETE") {
-        const row = await env.DB.prepare("SELECT data FROM cases WHERE id = ?1").bind(m[1]).first();
-        if (row) {
-          const docs = (JSON.parse(row.data).docs || []).map((d) => d.id).filter(Boolean);
-          if (docs.length) await env.FILES.delete(docs);
-        }
-        await env.DB.prepare("DELETE FROM cases WHERE id = ?1").bind(m[1]).run();
-        console.log("Case " + m[1] + " deleted by " + user);
+        const row = await env.DB.prepare("SELECT data, updated_at FROM cases WHERE id = ?1").bind(m[1]).first();
+        if (!row) return json({ error: "Not found" }, 404);
+        const data = JSON.parse(row.data);
+        if (data.deleted) return json({ ok: true });
+        // Soft delete: the case and its files stay stored, with who deleted it and when.
+        data.deleted = true;
+        data.deletedBy = user;
+        data.deletedAt = Date.now();
+        data.history = (data.history || []).concat([{ at: new Date().toISOString().slice(0, 10), text: "Case deleted.", by: user }]);
+        const v = Math.max(Date.now(), row.updated_at + 1);
+        const r = await env.DB.prepare(
+          "UPDATE cases SET data = ?2, updated_at = ?3 WHERE id = ?1 AND updated_at = ?4"
+        ).bind(m[1], JSON.stringify(data), v, row.updated_at).run();
+        if (!r.meta.changes) return json({ error: "The case was changed by someone else", code: "conflict" }, 409);
         return json({ ok: true });
       }
       if (p === "/api/files" && req.method === "POST") {
