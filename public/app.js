@@ -629,8 +629,8 @@
     return donutCard("Win rate", segs, s.decided, Math.round(s.winRate * 100) + "%", "win rate");
   }
 
-  // Follow-up after we reply (status "Defended"): remind us to check the case.
-  // First stage: 45 days. Pre-arbitration: 15 days. Arbitration: no reminder, wait for the bank's notice.
+  // Follow-up after we defend: check the case 45 days after the First chargeback's
+  // Respond by date, 15 days after Pre-arbitration's. Arbitration: no reminder.
   var FOLLOW_UP_DAYS = { inquiry: 45, first: 45, prearb: 15 };
   function followUpDays(c) { return FOLLOW_UP_DAYS[c.stage] || 0; }
   function respondedOn(c) {
@@ -642,9 +642,14 @@
     });
     return at;
   }
+  // The date the follow-up clock starts from: the stage's Respond by date, or our reply if there is none.
+  function checkFrom(c) {
+    if (c.status !== "defended" || !followUpDays(c)) return "";
+    return c.dueDate || respondedOn(c);
+  }
   function followUpDate(c) {
-    var r = respondedOn(c); if (!r) return "";
-    var base = c.checkedAt && c.checkedAt > r ? c.checkedAt : r;
+    var b = checkFrom(c); if (!b) return "";
+    var base = c.checkedAt && c.checkedAt > b ? c.checkedAt : b;
     return dstr(addDays(parseDate(base), followUpDays(c)));
   }
   function needsStatusCheck(c) {
@@ -760,6 +765,13 @@
       list.map(function (c) { return caseRow(c, showStage); }).join("") + "</tbody></table></div>";
   }
 
+  function checkQueue() {
+    var list = sortCases(state.cases.filter(needsStatusCheck));
+    if (!list.length) return "";
+    return '<section class="casesec checkq" aria-label="Check status"><div class="sechead"><h3>Check status <span class="muted">(' +
+      list.length + ")</span></h3></div>" + caseTable(list, "check", true) + "</section>";
+  }
+
   function renderTable() {
     var area = $("tableArea");
     var special = state.urgentOnly || state.checkOnly, searching = !!state.q.trim();
@@ -782,7 +794,7 @@
       area.innerHTML = list.length ? caseTable(list, "all", true) : '<div class="empty"><p>No cases match.</p></div>';
     } else {
       $("listTitle").textContent = "Cases, " + periodText();
-      area.innerHTML = SECTIONS.map(function (s) {
+      area.innerHTML = checkQueue() + SECTIONS.map(function (s) {
         var key = s[0], statuses = STATUS_BY_STAGE[key];
         var sel = statuses.indexOf(state.secStatus[key]) >= 0 ? state.secStatus[key] : statuses[0];
         var inStage = state.cases.filter(function (c) { return c.stage === key && inPeriod(c); });
@@ -1019,7 +1031,10 @@
           '<label class="f full"><span id="recvLabel"></span><input id="f_stageReceived" type="date" value="' + esc(cur.received) + '"' + dis + "></label>" +
           '<label class="f full">Respond by<input id="f_dueDate" type="date" value="' + esc(c.dueDate) + '"' + dis + "></label>" +
           '<label class="f full">Date of status update<input id="f_stepDate" type="date" value="' + todayStr() + '"' + dis + "></label>" +
-          (!isNew && needsStatusCheck(c) ? '<div class="explain full" id="checkLive"><strong>Time to check this case.</strong> We replied on ' + esc(fmtDate(respondedOn(c))) + ", " + (-daysUntil(respondedOn(c))) + " days ago." + (ro ? "" : '<br><button class="btn" id="checkedBtn" type="button" style="margin-top:8px">Checked, still waiting</button>') + "</div>" : "") +
+                    (!isNew && needsStatusCheck(c) ? '<div class="explain full" id="checkLive"><strong>Time to check this case.</strong> ' +
+            esc("Check was due " + fmtDate(followUpDate(c)) + " (" + followUpDays(c) + " days after " +
+              (c.checkedAt && c.checkedAt > checkFrom(c) ? "the last check" : c.dueDate ? "the respond-by date" : "our reply") + ").") +
+            (ro ? "" : '<br><button class="btn" id="checkedBtn" type="button" style="margin-top:8px">Checked, still waiting</button>') + "</div>" : "") +
         "</div></section></div>" +
         (isNew ? "" : '<div class="dlg">' + stageDatesHtml(c) + "</div>") +
         (isNew || !(c.history || []).length ? "" : '<div class="dlg">' + historyHtml(c) + "</div>") +

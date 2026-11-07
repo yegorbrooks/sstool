@@ -380,3 +380,7 @@ a.crm:hover { color: var(--accent); }
 /* "All cases" button above a filtered list */
 .list-head h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .backall { height: 32px; padding: 0 12px; font-size: 14px; }
+
+/* "Check status" queue */
+.checkq .sechead h3 { color: var(--wait); }
+.checkq .sechead h3 .muted { font-weight: 500; }
