@@ -942,7 +942,7 @@
       if (!window.pdfjsLib) return fail();
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
       fetch(url).then(function (r) { if (!r.ok) throw 0; return r.arrayBuffer(); }).then(function (buf) {
-        return window.pdfjsLib.getDocument({ data: buf }).promise;
+        return window.pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
       }).then(function (pdf) {
         if (tok !== viewTok) return;
         body.innerHTML = "";
