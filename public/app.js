@@ -813,10 +813,10 @@
       };
       area.innerHTML = list.length ? caseTable(list, "all", true) : '<div class="empty"><p>No cases match.</p></div>';
     } else {
-      $("listTitle").textContent = "Cases, " + periodText();
       var sel = STATUSES[state.status] ? state.status : "pending";
       $("listTitle").textContent = sel === "pending" || sel === "defended" ? "Cases" : "Cases, " + periodText();
       var inPer = state.cases.filter(inList);
+      var counts = {};
       STATUS_ORDER.forEach(function (k) { counts[k] = 0; });
       inPer.forEach(function (c) { if (c.status in counts) counts[c.status]++; });
       sf.innerHTML = STATUS_ORDER.map(function (k) {
