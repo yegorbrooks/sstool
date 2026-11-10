@@ -715,14 +715,9 @@
         : plural(urgent.length, "case needs", "cases need") + " our decision within 7 days.";
       html += '<div class="alert' + (late ? " hot" : "") + '"><span>' + esc(msg) + '</span><button id="showUrgent">Show them</button></div>';
     }
-    var check = state.cases.filter(needsStatusCheck);
-    if (check.length) {
-      html += '<div class="alert"><span>' + esc(plural(check.length, "case is", "cases are") + " due for a status check.") + '</span><button id="showCheck">Show them</button></div>';
-    }
     var area = $("alertArea");
     area.innerHTML = html;
     if ($("showUrgent")) $("showUrgent").onclick = function () { showSpecial("urgent"); };
-    if ($("showCheck")) $("showCheck").onclick = function () { showSpecial("check"); };
   }
 
   // Search box and alert links: one flat list across all stages and statuses.
@@ -793,20 +788,21 @@
       "<td>" + esc(fmtRange(c.travelFrom, c.travelTo)) + "</td>" +
       (showStage ? "<td>" + esc(stageLabel(c.stage, c.network)) + "</td>" : "") +
       '<td><span class="pill ' + statusKind(c.status) + '">' + esc(statusLabel(c.status)) + "</span>" +
-        (needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
+        (inQueue ? ' <span class="muted">' + esc(stageLabel(c.stage, c.network)) + "</span>"
+          : needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
   }
   function caseTable(list, sec, showStage) {
     return '<div class="tablewrap"><table><thead><tr><th>PNR</th><th>Sale ID</th><th>Source</th>' +
       sortTh("amount", "Amount", "num", sec) + sortTh("disputeDate", "Disputed date", "", sec) + sortTh("dueDate", "Due date", "", sec) +
       "<th>Travel date</th>" + (showStage ? "<th>Dispute cycle</th>" : "") + "<th>Status</th></tr></thead><tbody>" +
-      list.map(function (c) { return caseRow(c, showStage); }).join("") + "</tbody></table></div>";
+      list.map(function (c) { return caseRow(c, showStage, sec === "check"); }).join("") + "</tbody></table></div>";
   }
 
   function checkQueue() {
     var list = sortCases(state.cases.filter(needsStatusCheck));
     if (!list.length) return "";
     return '<section class="casesec checkq" aria-label="Check status"><div class="sechead"><h3>Check status <span class="muted">(' +
-      list.length + ")</span></h3></div>" + caseTable(list, "check", true) + "</section>";
+      list.length + ")</span></h3></div>" + caseTable(list, "check", false) + "</section>";
   }
 
   function renderTable() {
@@ -841,7 +837,7 @@
       sf.innerHTML = STATUS_ORDER.map(function (k) {
         return '<option value="' + k + '"' + (k === sel ? " selected" : "") + ">" + esc(STATUSES[k].label + " (" + counts[k] + ")") + "</option>";
       }).join("");
-      area.innerHTML = SECTIONS.map(function (s) {
+            area.innerHTML = checkQueue() + SECTIONS.map(function (s) {
         var key = s[0];
         var rows = sortCases(inPer.filter(function (c) { return c.stage === key && c.status === sel; }));
         var lbl = STATUSES[sel].label.toLowerCase();
