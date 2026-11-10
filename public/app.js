@@ -767,7 +767,7 @@
   // Cases tab, top to bottom. Each section opens on its first status (Pending; Defended for arbitration).
   var SECTIONS = [["first", "First chargeback"], ["prearb", "Pre-arbitration"], ["inquiry", "Inquiries (RFI)"], ["arb", "Arbitration"]];
 
-  function caseRow(c, showStage) {
+  function caseRow(c, showStage, inQueue) {
     var due = "";
     if (c.dueDate) {
       var cls = "", tag = "";
