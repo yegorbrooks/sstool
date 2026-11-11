@@ -857,6 +857,50 @@
   // Cases tab, top to bottom.
   var SECTIONS = [["first", "First chargeback"], ["prearb", "Pre-arbitration"], ["inquiry", "Inquiries (RFI)"], ["arb", "Arbitration"]];
 
+  /* ---------- note icon in the case lists ---------- */
+  // Who last edited the notes and when: the latest "Notes edited." history entry,
+  // or whoever added the case if the note was written when the case was created.
+  function noteMeta(c) {
+    var h = (c.history || []).filter(function (x) { return x.text === "Notes edited."; }).pop();
+    if (h) return { by: h.by, at: h.at };
+    return { by: c.createdBy, at: c.createdAt ? dstr(new Date(c.createdAt)) : "" };
+  }
+  function noteIcon(c) {
+    var n = String(c.notes || "").trim();
+    if (!n) return "";
+    return '<span class="noteicon" tabindex="0" role="img" aria-label="' + esc("Note: " + n) + '" data-note="' + esc(c.id) + '">' +
+      '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
+        '<path d="M3 2.5h7l3 3v8H3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>' +
+        '<path d="M10 2.5v3h3M5.5 8.5h5M5.5 11h3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+      "</svg></span>";
+  }
+  // The note pops up in a box attached to the page itself, so the table's scrolling edges can't cut it off.
+  function showNoteTip(el) {
+    var c = state.cases.filter(function (x) { return x.id === el.getAttribute("data-note"); })[0];
+    if (!c || !String(c.notes || "").trim()) return;
+    var t = $("noteTip");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "noteTip"; t.className = "notetip"; t.setAttribute("role", "tooltip");
+      document.body.appendChild(t);
+    }
+    var n = String(c.notes).trim();
+    if (n.length > 600) n = n.slice(0, 600).trimEnd() + "\u2026";
+    var m = noteMeta(c), who = [personName(m.by), fmtDate(m.at)].filter(Boolean).join(", ");
+    t.innerHTML = '<div class="nt-text"></div>' + (who ? '<div class="nt-meta"></div>' : "");
+    t.querySelector(".nt-text").textContent = n;
+    if (who) t.querySelector(".nt-meta").textContent = who;
+    t.hidden = false;
+    // Above the icon, right edges lined up; below it if there is no room above.
+    var r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight, gap = 8;
+    var left = Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8);
+    var top = r.top - h - gap;
+    if (top < 8) top = Math.min(r.bottom + gap, window.innerHeight - h - 8);
+    t.style.left = left + "px"; t.style.top = top + "px";
+  }
+  function hideNoteTip() { var t = $("noteTip"); if (t) t.hidden = true; }
+  window.addEventListener("scroll", hideNoteTip, true);
+
   function caseRow(c, showStage, inQueue) {
     var due = "";
     if (c.dueDate) {
@@ -879,7 +923,7 @@
       (showStage ? "<td>" + esc(stageLabel(c.stage, c.network)) + "</td>" : "") +
       '<td><span class="pill ' + statusKind(c.status) + '">' + esc(statusLabel(c.status)) + "</span>" +
         (inQueue ? ' <span class="muted">' + esc(stageLabel(c.stage, c.network)) + "</span>"
-          : needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + "</td></tr>";
+          : needsStatusCheck(c) ? ' <span class="pill act">Check status</span>' : "") + noteIcon(c) + "</td></tr>";
   }
   function caseTable(list, sec, showStage) {
     return '<div class="tablewrap"><table><thead><tr><th>PNR</th><th>Sale ID</th><th>Source</th>' +
@@ -896,6 +940,7 @@
   }
 
   function renderTable() {
+    hideNoteTip();
     var area = $("tableArea");
     var special = state.urgentOnly || state.checkOnly, searching = !!state.q.trim();
     var sf = $("statusFilter");
@@ -948,6 +993,10 @@
       if (rb) rb.focus();
       state.refocus = null;
     }
+    Array.prototype.forEach.call(area.querySelectorAll(".noteicon"), function (ic) {
+      ic.onmouseenter = ic.onfocus = function () { showNoteTip(ic); };
+      ic.onmouseleave = ic.onblur = hideNoteTip;
+    });
     Array.prototype.forEach.call(area.querySelectorAll("a.crm"), function (a) {
       a.onclick = function (e) { e.stopPropagation(); };
     });
@@ -1622,6 +1671,7 @@
       leaveGuard.discard();   // files uploaded but never saved to the case are removed again
       leaveGuard = null;
     }
+    hideNoteTip();
     // Anything floating over the old page goes with it.
     if (state.openId !== target) {
       closeViewer();
