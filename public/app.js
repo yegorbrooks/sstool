@@ -148,12 +148,62 @@
       ["R13", "No reply"],
       ["M01", "Chargeback authorisation"] ] }
   ];
+  var MC_REASONS = [
+    { group: "Fraud", items: [
+      ["4837", "No cardholder authorization"],
+      ["4837", "First-party trust (Consumer Clarity)"],
+      ["4870", "Chip liability shift"],
+      ["4871", "Chip lost, stolen or never received"] ] },
+    { group: "Authorization (4808)", items: [
+      ["4808", "Required authorization not obtained"],
+      ["4808", "Chargeback protection period expired"],
+      ["4808", "Stand-in or X-Code approval after decline"],
+      ["4808", "CAT 3 device"],
+      ["4808", "Transit first ride risk"] ] },
+    { group: "Cardholder dispute (4853)", items: [
+      ["4853", "Not as described or defective"],
+      ["4853", "Goods or services not provided"],
+      ["4853", "Travel services not provided, voucher issued"],
+      ["4853", "Failed travel merchant (Europe)"],
+      ["4853", "Digital goods, 25 USD/EUR or less"],
+      ["4853", "Refund not processed"],
+      ["4853", "Counterfeit goods"],
+      ["4853", "Recurring transaction, cardholder dispute"],
+      ["4853", "Recurring transaction, issuer dispute"],
+      ["4853", "Addendum dispute"],
+      ["4853", "Hotel no-show charge"],
+      ["4853", "Transaction did not complete"],
+      ["4853", "Timeshare"],
+      ["4853", "Refund posted as a purchase"] ] },
+    { group: "Other cardholder disputes", items: [
+      ["4850", "Installment billing not as agreed"],
+      ["4854", "Not elsewhere classified (US only)"] ] },
+    { group: "Point-of-interaction error (4834)", items: [
+      ["4834", "Debited twice or paid by other means"],
+      ["4834", "Transaction amount differs"],
+      ["4834", "Cash back not provided"],
+      ["4834", "ATM funds not dispensed"],
+      ["4834", "Charges for loss, theft or damage"],
+      ["4834", "Currency error or DCC"],
+      ["4834", "Refund caused exchange loss"],
+      ["4834", "Improper surcharge"],
+      ["4834", "Unreasonable amount (EEA/UK)"],
+      ["4834", "Late presentment"] ] },
+    { group: "Questionable merchant (4849)", items: [
+      ["4849", "Questionable merchant audit (QMAP)"],
+      ["4849", "Coercion program"] ] }
+  ];
+  var DEFAULT_MC_REASON = "4837 No cardholder authorization";
   var DEFAULT_AMEX_REASON = "F29 Card not present";
   var DEFAULT_VISA_REASON = "10.4 Other Fraud - Card-Absent Environment";
   // Visa and Amex use their own reason codes; other networks keep the general list.
+    // Visa, Mastercard and Amex use their own reason codes; other networks keep the general list.
+  function defaultReason(network) {
+    return network === "Visa" ? DEFAULT_VISA_REASON : network === "Mastercard" ? DEFAULT_MC_REASON : network === "Amex" ? DEFAULT_AMEX_REASON : "";
+  }
   function reasonOptions(network, sel) {
     var html, values = [];
-    var groups = network === "Visa" ? VISA_REASONS : network === "Amex" ? AMEX_REASONS : null;
+    var groups = network === "Visa" ? VISA_REASONS : network === "Mastercard" ? MC_REASONS : network === "Amex" ? AMEX_REASONS : null;
     if (groups) {
       html = groups.map(function (g) {
         return '<optgroup label="' + esc(g.group) + '">' + g.items.map(function (it) {
@@ -1187,7 +1237,7 @@
       var net = $("f_network").value;
       // A reason code from another network does not apply here: fall back to this network's default.
       var rv = $("f_reason").value;
-      if (reasonOptions(net, "").indexOf('value="' + esc(rv) + '"') < 0) rv = net === "Visa" ? DEFAULT_VISA_REASON : net === "Amex" ? DEFAULT_AMEX_REASON : "";
+      if (reasonOptions(net, "").indexOf('value="' + esc(rv) + '"') < 0) rv = defaultReason(net);
       $("f_reason").innerHTML = reasonOptions(net, rv);
       var prev = $("f_stage").value, st = prev;
       if (stagesFor(net).indexOf(st) < 0) st = "first";
