@@ -878,20 +878,22 @@
       };
       area.innerHTML = list.length ? caseTable(list, "all", true) : '<div class="empty"><p>No cases match.</p></div>';
     } else {
-      var sel = STATUSES[state.status] ? state.status : "pending";
+            var sel = state.status === "all" || STATUSES[state.status] ? state.status : "pending";
+      var all = sel === "all";
       $("listTitle").textContent = sel === "pending" || sel === "defended" ? "Cases" : "Cases, " + periodText();
       var inPer = state.cases.filter(inList);
       var counts = {};
       STATUS_ORDER.forEach(function (k) { counts[k] = 0; });
       inPer.forEach(function (c) { if (c.status in counts) counts[c.status]++; });
-      sf.innerHTML = STATUS_ORDER.map(function (k) {
-        return '<option value="' + k + '"' + (k === sel ? " selected" : "") + ">" + esc(STATUSES[k].label + " (" + counts[k] + ")") + "</option>";
-      }).join("");
-            area.innerHTML = checkQueue() + SECTIONS.map(function (s) {
+      sf.innerHTML = '<option value="all"' + (all ? " selected" : "") + ">" + esc("All statuses (" + inPer.length + ")") + "</option>" +
+        STATUS_ORDER.map(function (k) {
+          return '<option value="' + k + '"' + (k === sel ? " selected" : "") + ">" + esc(STATUSES[k].label + " (" + counts[k] + ")") + "</option>";
+        }).join("");
+      area.innerHTML = checkQueue() + SECTIONS.map(function (s) {
         var key = s[0];
-        var rows = sortCases(inPer.filter(function (c) { return c.stage === key && c.status === sel; }));
-        var lbl = STATUSES[sel].label.toLowerCase();
-        var empty = STATUS_BY_STAGE[key].indexOf(sel) < 0 ? s[1] + " has no " + lbl + " status." : "No " + lbl + " cases.";
+        var rows = sortCases(inPer.filter(function (c) { return c.stage === key && (all || c.status === sel); }));
+        var lbl = all ? "" : STATUSES[sel].label.toLowerCase();
+        var empty = all ? "No cases." : STATUS_BY_STAGE[key].indexOf(sel) < 0 ? s[1] + " has no " + lbl + " status." : "No " + lbl + " cases.";
         return '<section class="casesec" aria-label="' + esc(s[1]) + '"><div class="sechead"><h3>' + esc(s[1]) + "</h3></div>" +
           (rows.length ? caseTable(rows, key, false) : '<p class="muted secempty">' + esc(empty) + "</p>") +
           "</section>";
