@@ -177,6 +177,20 @@ tbody tr:last-child td { border-bottom: 0; }
 .pill.review { background: var(--wait-bg); color: var(--wait); }
 .pill.won { background: var(--win-bg); color: var(--win); }
 
+/* note icon at the end of the status cell, and the note shown on hover */
+.noteicon {
+  float: right; display: inline-flex; align-items: center; height: 24px; padding: 0 2px; margin-left: 8px;
+  color: var(--ink-3); border-radius: 4px;
+}
+.noteicon svg { display: block; }
+.noteicon:hover, .noteicon:focus-visible { color: var(--accent); }
+.notetip {
+  position: fixed; z-index: 60; max-width: min(340px, calc(100vw - 16px)); padding: 10px 12px;
+  border-radius: 8px; background: var(--ink); color: var(--bg); font-size: 13.5px; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: 0 6px 20px rgba(0, 0, 0, .18); pointer-events: none;
+}
+.notetip .nt-meta { margin-top: 6px; font-size: 12px; opacity: .7; white-space: normal; }
+
 /* ---------- statistics ---------- */
 .stats { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 24px; align-items: stretch; margin-bottom: 20px; }
 
