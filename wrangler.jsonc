@@ -2,6 +2,11 @@
   "name": "chargeback-tracker",
   "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
+  // Branch and version preview links are not covered by Cloudflare Access, so they are switched off.
+  "preview_urls": false,
+  // If everyone opens the tracker on a custom domain (not the *.workers.dev address),
+  // uncomment the next line to switch off the workers.dev address too.
+  // "workers_dev": false,
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

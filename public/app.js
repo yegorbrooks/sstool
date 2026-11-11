@@ -28,10 +28,9 @@
     prearb: { label: "Pre-arbitration" },
     arb:    { label: "Arbitration" }
   };
-  var STAGE_ORDER = ["inquiry", "first", "prearb", "arb"];
   // Amex has no pre-arbitration or arbitration: an optional inquiry (RFI), then a single final chargeback decision.
   function stagesFor(network) { return network === "Amex" ? ["inquiry", "first"] : ["first", "prearb", "arb"]; }
-    // Stages a case can move on to (Amex: inquiry → chargeback; others: first → pre-arb → arbitration).
+  // Stages a case can move on to (Amex: inquiry → chargeback; others: first → pre-arb → arbitration).
   function laterStages(c) {
     var list = stagesFor(c.network), i = list.indexOf(c.stage);
     return i < 0 ? [] : list.slice(i + 1);
@@ -196,8 +195,7 @@
   var DEFAULT_MC_REASON = "4837 No cardholder authorization";
   var DEFAULT_AMEX_REASON = "F29 Card not present";
   var DEFAULT_VISA_REASON = "10.4 Other Fraud - Card-Absent Environment";
-  // Visa and Amex use their own reason codes; other networks keep the general list.
-    // Visa, Mastercard and Amex use their own reason codes; other networks keep the general list.
+  // Visa, Mastercard and Amex use their own reason codes; other networks keep the general list.
   function defaultReason(network) {
     return network === "Visa" ? DEFAULT_VISA_REASON : network === "Mastercard" ? DEFAULT_MC_REASON : network === "Amex" ? DEFAULT_AMEX_REASON : "";
   }
@@ -227,7 +225,11 @@
   var LEGACY_CURRENCY = "USD";
   function docExt(name) { var m = /\.([a-z0-9]+)$/i.exec(name || ""); return m ? m[1].toLowerCase() : ""; }
   function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
-  var DOC_ERR = { too_large: "is over the 50 MB limit", unsupported_type: "is not a supported file type", quota_or_state: "could not be stored: storage is full", not_granted: "could not be uploaded: no permission", rate_limited: "was rate limited, try again in a moment" };
+  var DOC_ERR = {
+    too_large: "is over the 50 MB limit",
+    invalid_request: "is empty",
+    expired: "could not be uploaded because your sign-in expired. Open the app in a new tab to sign in, then upload it again"
+  };
 
   var state = {
     cases: [],
@@ -243,10 +245,12 @@
     checkOnly: false,
     urgentOnly: false,
     canWrite: true,
-    db: null,
     assets: null,
     loaded: false,
-    openId: null
+    expired: false,
+    sig: "",
+    openId: null,
+    closeModal: null
   };
 
   /* ---------- helpers ---------- */
@@ -304,10 +308,10 @@
     return Math.round((d - t) / 86400000);
   }
   var toastTimer;
-  function toast(msg) {
+  function toast(msg, ms) {
     var t = $("toast"); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.hidden = true; }, 3200);
+    toastTimer = setTimeout(function () { t.hidden = true; }, ms || 3200);
   }
   function personName(email) {
     if (!email) return "";
@@ -374,7 +378,7 @@
       o.history.forEach(function (h) { if (h.stage === o.stage && h.at && (!rec || h.at < rec)) rec = h.at; });
       o.stageLog = [{ stage: o.stage, received: rec || o.disputeDate || "", due: o.dueDate || "" }];
     }
-        o.stageLog = o.stageLog.map(function (s) { return Object.assign({}, s); });
+    o.stageLog = o.stageLog.map(function (s) { return Object.assign({}, s); });
     // Cases saved before stages kept their own number and amount: the current stage uses the case's values.
     var lastLog = o.stageLog[o.stageLog.length - 1];
     if (!lastLog.caseNo) lastLog.caseNo = o.caseNo || "";
@@ -388,10 +392,18 @@
   function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
+  // When the Cloudflare Access sign-in runs out, Access answers with a redirect to its login page.
+  // "manual" redirects let us spot that instead of failing with a confusing network error.
+  function expiredErr() {
+    var e = new Error("Your sign-in expired. Open the app in a new tab to sign in, then try again.");
+    e.status = 401; e.code = "expired"; return e;
+  }
+  function isExpired(r) { return r.type === "opaqueredirect" || r.status === 401; }
   function api(method, path, body, headers) {
-    var opt = { method: method, headers: headers || {} };
+    var opt = { method: method, headers: headers || {}, redirect: "manual" };
     if (body !== undefined) { opt.headers["content-type"] = "application/json"; opt.body = JSON.stringify(body); }
     return fetch(path, opt).then(function (r) {
+      if (isExpired(r)) throw expiredErr();
       if (!r.ok) { var e = new Error("Server answered " + r.status); e.status = r.status; throw e; }
       return r.json();
     });
@@ -401,34 +413,58 @@
   function saveCase(c) {
     c.updatedAt = Date.now();
     var ver = c._v != null ? String(c._v) : "new";
-        return api("PUT", "/api/cases/" + encodeURIComponent(c.id), c, { "x-version": ver }).then(function (j) {
+    return api("PUT", "/api/cases/" + encodeURIComponent(c.id), c, { "x-version": ver }).then(function (j) {
       var saved = j.case || c;
       saved._v = j.v; c._v = j.v;
       var i = state.cases.findIndex(function (x) { return x.id === c.id; });
       if (i >= 0) state.cases[i] = norm(saved); else state.cases.push(norm(saved));
       renderAll();
-    }, function (e) { if (e.status !== 409) toast("Could not save: " + e.message); throw e; });
+    }, function (e) {
+      if (e.status === 401) toast(e.message, 8000);
+      else if (e.status !== 409) toast("Could not save: " + e.message);
+      throw e;
+    });
   }
   function removeCase(id) {
     return api("DELETE", "/api/cases/" + encodeURIComponent(id)).then(function () {
       state.cases = state.cases.filter(function (x) { return x.id !== id; });
       renderAll();
-    }, function (e) { toast("Could not delete: " + e.message); throw e; });
+    }, function (e) { toast(e.status === 401 ? e.message : "Could not delete: " + e.message, e.status === 401 ? 8000 : 0); throw e; });
   }
   function loadCases(first) {
     return api("GET", "/api/cases").then(function (list) {
+      var wasExpired = state.expired;
+      state.expired = false;
+      // Nothing changed since the last refresh: leave the page alone.
+      var sig = list.map(function (c) { return c.id + ":" + c._v; }).sort().join(",");
+      if (!first && !wasExpired && sig === state.sig) return;
+      state.sig = sig;
       state.cases = list.map(norm); state.loaded = true;
-      var picking = document.activeElement && document.activeElement.classList.contains("secstatus");
+      // Don't redraw while someone has a dropdown or date picker open.
+      var el = document.activeElement;
+      var picking = el && (el.tagName === "SELECT" || (el.tagName === "INPUT" && el.type === "date"));
       if (first) { renderAll(); route(); } else if (state.openId == null && $("detailView").hidden && !picking) renderAll();
-    }, function () { if (first) { state.loaded = true; renderAll(); route(); toast("Could not load cases. Sign in again or reload."); } });
+    }, function (e) {
+      if (e && e.status === 401) {
+        state.expired = true;
+        if (state.loaded && $("detailView").hidden) renderAlert();
+      }
+      if (first) {
+        state.loaded = true; renderAll(); route();
+        if (!state.expired) toast("Could not load cases. Sign in again or reload.");
+      }
+    });
   }
   function initStorage() {
     state.assets = {
       upload: function (f, o) {
-        return fetch("/api/files", { method: "POST", headers: { "x-filename": encodeURIComponent(f.name), "content-type": (o && o.type) || "application/octet-stream" }, body: f })
-          .then(function (r) { return r.json().then(function (j) { if (!r.ok) { var e = new Error(j.error || "upload failed"); e.code = j.code; throw e; } return j; }); });
+        return fetch("/api/files", { method: "POST", redirect: "manual", headers: { "x-filename": encodeURIComponent(f.name), "content-type": (o && o.type) || "application/octet-stream" }, body: f })
+          .then(function (r) {
+            if (isExpired(r)) throw expiredErr();
+            return r.json().then(function (j) { if (!r.ok) { var e = new Error(j.error || "upload failed"); e.code = j.code; throw e; } return j; });
+          });
       },
-      delete: function (id) { return fetch("/api/files/" + id, { method: "DELETE" }); }
+      delete: function (id) { return fetch("/api/files/" + id, { method: "DELETE", redirect: "manual" }); }
     };
     state.downloads = { save: function (o) {
       var a = document.createElement("a"), u = URL.createObjectURL(new Blob([o.data], { type: o.type || "application/octet-stream" }));
@@ -757,6 +793,9 @@
   }
   function renderAlert() {
     var html = "";
+    if (state.expired) {
+      html += '<div class="alert hot"><span>Your sign-in expired, so this list is no longer updating.</span><button id="signInAgain">Sign in again</button></div>';
+    }
     var urgent = state.cases.filter(isUrgent);
     if (urgent.length) {
       var late = urgent.filter(function (c) { return daysUntil(c.dueDate) < 0; }).length;
@@ -768,6 +807,7 @@
     var area = $("alertArea");
     area.innerHTML = html;
     if ($("showUrgent")) $("showUrgent").onclick = function () { showSpecial("urgent"); };
+    if ($("signInAgain")) $("signInAgain").onclick = function () { location.reload(); };
   }
 
   // Search box and alert links: one flat list across all stages and statuses.
@@ -778,7 +818,7 @@
     if (state.checkOnly && !needsStatusCheck(c)) return false;
     if (state.urgentOnly && !isUrgent(c)) return false;
     if (q) {
-            var hay = [c.caseNo, pastCaseNos(c).join(" "), c.customer, c.pnr, c.saleId, c.product, c.orderRef, c.reason, c.network, c.notes].join(" ").toLowerCase();
+      var hay = [c.caseNo, pastCaseNos(c).join(" "), c.pnr, c.saleId, c.product, c.orderRef, c.reason, c.network, c.notes].join(" ").toLowerCase();
       if (hay.indexOf(q) < 0) return false;
     }
     return true;
@@ -814,7 +854,7 @@
       '<span class="arr" aria-hidden="true">' + (on ? (asc ? "\u25B2" : "\u25BC") : "\u2195") + "</span></button></th>";
   }
 
-  // Cases tab, top to bottom. Each section opens on its first status (Pending; Defended for arbitration).
+  // Cases tab, top to bottom.
   var SECTIONS = [["first", "First chargeback"], ["prearb", "Pre-arbitration"], ["inquiry", "Inquiries (RFI)"], ["arb", "Arbitration"]];
 
   function caseRow(c, showStage, inQueue) {
@@ -868,8 +908,9 @@
       return;
     }
     if (special || searching) {
+      // Search and the alert links cover every case, whatever period is selected.
       var list = sortCases(state.cases.filter(matchesFilters));
-      var title = state.urgentOnly ? "Cases needing a decision" : state.checkOnly ? "Cases to check" : "Search results, " + periodText();
+      var title = state.urgentOnly ? "Cases needing a decision" : state.checkOnly ? "Cases to check" : "Search results";
       $("listTitle").innerHTML = '<button type="button" class="btn backall" id="clearSpecial">&larr; All cases</button> ' +
         esc(title + " (" + list.length + ")");
       $("clearSpecial").onclick = function () {
@@ -878,7 +919,7 @@
       };
       area.innerHTML = list.length ? caseTable(list, "all", true) : '<div class="empty"><p>No cases match.</p></div>';
     } else {
-            var sel = state.status === "all" || STATUSES[state.status] ? state.status : "pending";
+      var sel = state.status === "all" || STATUSES[state.status] ? state.status : "pending";
       var all = sel === "all";
       $("listTitle").textContent = sel === "pending" || sel === "defended" ? "Cases" : "Cases, " + periodText();
       var inPer = state.cases.filter(inList);
@@ -898,16 +939,6 @@
           (rows.length ? caseTable(rows, key, false) : '<p class="muted secempty">' + esc(empty) + "</p>") +
           "</section>";
       }).join("");
-
-      Array.prototype.forEach.call(area.querySelectorAll("select.secstatus"), function (sl) {
-        sl.onchange = function () {
-          var sec = sl.getAttribute("data-sec");
-          state.secStatus[sec] = sl.value;
-          renderTable();
-          var again = area.querySelector('select.secstatus[data-sec="' + sec + '"]');
-          if (again) again.focus();
-        };
-      });
     }
     Array.prototype.forEach.call(area.querySelectorAll("th button[data-sort]"), function (btn) {
       btn.onclick = function () { setSort(btn.getAttribute("data-sort"), btn.getAttribute("data-sec")); };
@@ -966,11 +997,11 @@
     var hist = (c.history || []).slice().reverse();
     if (!hist.length) return "";
     return '<div class="flow"><h4>History</h4><ol class="timeline">' + hist.map(function (h) {
-            return '<li><span class="when">' + esc(fmtDate(h.at)) + "</span><span>" + esc(h.text) + byHtml(h.by) + "</span></li>";
+      return '<li><span class="when">' + esc(fmtDate(h.at)) + "</span><span>" + esc(h.text) + byHtml(h.by) + "</span></li>";
     }).join("") + "</ol></div>";
   }
 
-    function stageDatesHtml(c) {
+  function stageDatesHtml(c) {
     var log = c.stageLog || [];
     if (!log.length) return "";
     return '<div class="flow"><h4>Stage dates</h4><ol class="timeline">' + log.map(function (s) {
@@ -1096,6 +1127,9 @@
 
   // The open case page registers this so leaving it can warn about unsaved changes.
   var leaveGuard = null;
+  // Goes up every time a case page opens or closes, so work that finishes late (an upload)
+  // can tell whether the page it started on is still the one on screen.
+  var pageTok = 0;
   // A snapshot of every field on the case page, used to tell whether anything was changed.
   function formSnap() {
     return Array.prototype.map.call($("detailBody").querySelectorAll("input, select, textarea"), function (el) {
@@ -1105,17 +1139,20 @@
   }
 
   function openDialog(id) {
+    var myTok = ++pageTok;
+    function alive() { return myTok === pageTok; }
     var c = id ? state.cases.filter(function (x) { return x.id === id; })[0] : null;
     var isNew = !c;
-    c = c || {customer: "", orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", currency: state.currency, fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", docs: [] };
+    c = c || {orderRef: "", network: "Visa", reason: DEFAULT_VISA_REASON, pnr: "", product: "Ticket Cost", travelFrom: "", travelTo: "", amount: "", currency: state.currency, fee: "", feesCharged: false, disputeDate: todayStr(), dueDate: "", stage: "first", status: "pending", notes: "", history: [], transactionDate: "", docs: [] };
     // Dates of the stage the case is in now.
     var cur = isNew ? { received: c.disputeDate, due: "" } : c.stageLog[c.stageLog.length - 1];
     var ro = !state.canWrite;
     var dis = ro ? " disabled" : "";
     $("detailBody").innerHTML =
       '<div class="case-head"><h3 id="dlgTitle">' + (isNew ? "Add case" : "Case " + esc(c.caseNo)) + "</h3>" +
-        (!isNew && (c.customer || c.pnr || c.saleId) ? '<span class="muted">' + [c.customer ? esc(c.customer) : "", c.pnr ? "PNR " + esc(c.pnr) : "", c.saleId ? "Sale " + crmLink(c.saleId) : ""].filter(Boolean).join(" \u00b7 ") + "</span>" : "") +
-        (isNew ? "" : whoLine(c)) + "</div>" +      '<div class="case-layout">' +
+        (!isNew && (c.pnr || c.saleId) ? '<span class="muted">' + [c.pnr ? "PNR " + esc(c.pnr) : "", c.saleId ? "Sale " + crmLink(c.saleId) : ""].filter(Boolean).join(" \u00b7 ") + "</span>" : "") +
+        (isNew ? "" : whoLine(c)) + "</div>" +
+      '<div class="case-layout">' +
       '<div class="dlg">' +
         '<section class="sec"><h4>Booking</h4><div class="grid g3">' +
           '<label class="f">PNR<input id="f_pnr" class="pnr-in" maxlength="12" autocapitalize="characters" autocomplete="off" value="' + esc(c.pnr) + '"' + dis + "></label>" +
@@ -1155,12 +1192,12 @@
         '<div class="dlg"><section class="sec nobd"><h4>Stage and status</h4><div class="grid">' +
           '<label class="f full">Stage<select id="f_stage"' + (isNew ? dis : " disabled") + ">" + stageOpts(c.stage, c.network) + "</select></label>" +
           '<label class="f full">Status<select id="f_status"' + dis + ">" + statusOpts(c.stage, c.status) + "</select></label>" +
-                    (!isNew && !ro && laterStages(c).length ? '<button class="btn full" type="button" id="moveBtn">Move to ' +
+          (!isNew && !ro && laterStages(c).length ? '<button class="btn full" type="button" id="moveBtn">Move to ' +
             esc(stageLabel(laterStages(c)[0], c.network)) + "\u2026</button>" : "") +
           '<label class="f full"><span id="recvLabel"></span><input id="f_stageReceived" type="date" value="' + esc(cur.received) + '"' + dis + "></label>" +
           '<label class="f full">Respond by<input id="f_dueDate" type="date" value="' + esc(c.dueDate) + '"' + dis + "></label>" +
           '<label class="f full">Date of status update<input id="f_stepDate" type="date" value="' + todayStr() + '"' + dis + "></label>" +
-                    (!isNew && needsStatusCheck(c) ? '<div class="explain full" id="checkLive"><strong>Time to check this case.</strong> ' +
+          (!isNew && needsStatusCheck(c) ? '<div class="explain full" id="checkLive"><strong>Time to check this case.</strong> ' +
             esc("Check was due " + fmtDate(followUpDate(c)) + " (" + followUpDays(c) + " days after " +
               (c.checkedAt && c.checkedAt > checkFrom(c) ? "the last check" : c.dueDate ? "the respond-by date" : "our reply") + ").") +
             (ro ? "" : '<br><button class="btn" id="checkedBtn" type="button" style="margin-top:8px">Checked, still waiting</button>') + "</div>" : "") +
@@ -1172,29 +1209,25 @@
     var dlg = { close: closeDetail };
     function fail(m) { $("dlgErr").textContent = m; }
 
+    // Save and Move wait while files are uploading or a save is under way.
+    var uploading = 0, saving = false;
+    function setBusy() {
+      if (!alive()) return;
+      var busy = uploading > 0 || saving;
+      if ($("saveBtn")) $("saveBtn").disabled = busy;
+      if ($("moveBtn")) $("moveBtn").disabled = busy;
+      if ($("docBtn")) $("docBtn").textContent = uploading ? "Uploading " + uploading + "\u2026" : "Upload files";
+    }
+
     function autoFees() {
       if ($("f_stage").value === "arb" && $("f_status").value === "lost") $("f_feesCharged").checked = true;
     }
     function recvLabel() {
       $("recvLabel").textContent = stageLabel($("f_stage").value, $("f_network").value) + " received on";
     }
+    // Only a new case can pick its stage here; existing cases change stage with "Move to …".
     $("f_stage").onchange = function () {
-      var st = $("f_stage").value;
-      if (isNew) {
-        $("f_status").innerHTML = statusOpts(st, $("f_status").value);
-      } else if (st === c.stage) {
-        // Back to the saved stage: restore its saved dates.
-        $("f_status").innerHTML = statusOpts(st, c.status);
-        $("f_stageReceived").value = cur.received;
-        $("f_dueDate").value = c.dueDate;
-      } else {
-        // A new stage starts with its own dates: received today by default, and a new deadline.
-        $("f_status").innerHTML = statusOpts(st, "");
-        $("f_stageReceived").value = todayStr();
-        $("f_dueDate").value = "";
-        lastAuto = "";
-        suggestDue();
-      }
+      $("f_status").innerHTML = statusOpts($("f_stage").value, $("f_status").value);
       recvLabel(); autoFees();
     };
     $("f_status").onchange = autoFees;
@@ -1241,8 +1274,9 @@
       var rv = $("f_reason").value;
       if (reasonOptions(net, "").indexOf('value="' + esc(rv) + '"') < 0) rv = defaultReason(net);
       $("f_reason").innerHTML = reasonOptions(net, rv);
+      // An existing case keeps its stage whatever the network; only a new case falls back to the first stage.
       var prev = $("f_stage").value, st = prev;
-      if (stagesFor(net).indexOf(st) < 0) st = "first";
+      if (isNew && stagesFor(net).indexOf(st) < 0) st = "first";
       $("f_stage").innerHTML = stageOpts(st, net);
       if (st !== prev) $("f_stage").onchange();
       else $("f_status").innerHTML = statusOpts(st, $("f_status").value);
@@ -1259,16 +1293,20 @@
     var docs = (c.docs || []).slice(), addedIds = [], removedIds = [];
     function dropAsset(id) { if (state.assets) state.assets.delete(id).catch(function () {}); }
     function renderDocs() {
+      if (!alive()) return;
       $("docCount").textContent = docs.length ? "(" + docs.length + ")" : "";
       $("docList").innerHTML = docs.length ? docs.map(function (d, i) {
         return '<li><div class="dname"><button type="button" class="linkbtn" data-view="' + i + '" title="View">' + esc(d.name) + "</button>" +
-          '<span class="muted">' + esc(fmtSize(d.size) + " \u00b7 " + fmtDate(d.at) + (d.by ? " \u00b7 " + personName(d.by) : "")) + "</span></div>" +          '<div class="dact"><button class="btn" type="button" data-view="' + i + '">View</button><button class="btn" type="button" data-dl="' + i + '">Download</button>' +
+          '<span class="muted">' + esc(fmtSize(d.size) + " \u00b7 " + fmtDate(d.at) + (d.by ? " \u00b7 " + personName(d.by) : "")) + "</span></div>" +
+          '<div class="dact"><button class="btn" type="button" data-view="' + i + '">View</button><button class="btn" type="button" data-dl="' + i + '">Download</button>' +
           (ro ? "" : '<button class="btn danger" type="button" data-rm="' + i + '">Remove</button>') + "</div></li>";
       }).join("") : '<li class="muted">No documents yet.</li>';
       Array.prototype.forEach.call($("docList").querySelectorAll("[data-rm]"), function (b) {
         b.onclick = function () {
           var d = docs.splice(+b.getAttribute("data-rm"), 1)[0];
           var k = addedIds.indexOf(d.id);
+          // An upload from this visit that was never saved is deleted right away.
+          // A document already saved on the case only leaves the list; its file stays stored.
           if (k >= 0) { addedIds.splice(k, 1); dropAsset(d.id); } else removedIds.push(d.id);
           renderDocs();
         };
@@ -1284,21 +1322,26 @@
       $("docBtn").onclick = function () { $("f_docFile").click(); };
       $("f_docFile").onchange = function () {
         var files = Array.prototype.slice.call(this.files); this.value = "";
+        if (!files.length) return;
+        uploading += files.length; setBusy();
         var chain = Promise.resolve();
         files.forEach(function (f) {
           chain = chain.then(function () {
+            if (!alive()) return;   // the case page was closed: skip the rest
             return state.assets.upload(f, { type: f.type || "application/octet-stream" }).then(function (r) {
+              // Finished after the page was closed: the file belongs to no case, so remove it again.
+              if (!alive()) { dropAsset(r.id); return; }
               addedIds.push(r.id);
               docs.push({ id: r.id, name: f.name, size: r.sizeBytes, type: r.contentType, at: todayStr(), by: state.me || "" });
               renderDocs();
-            }, function (e) { toast(f.name + " " + (DOC_ERR[e && e.code] || "could not be uploaded") + "."); });
-          });
+            }, function (e) { toast(f.name + " " + (DOC_ERR[e && e.code] || "could not be uploaded") + ".", e && e.code === "expired" ? 8000 : 0); });
+          }).then(function () { uploading--; setBusy(); });
         });
       };
     }
     renderDocs();
 
-        function collect() {
+    function collect() {
       if (isNew) {
         var missing = REQUIRED_FIELDS.filter(function (r) {
           var el = $(r[0]), v = String(el.value || "").trim();
@@ -1315,7 +1358,8 @@
       if ($("f_amount").value === "" || num($("f_amount").value) <= 0) { fail("Enter the disputed amount."); return null; }
       if (!$("f_disputeDate").value) { fail("Enter the date the dispute was raised."); return null; }
       if ($("f_travelFrom").value && $("f_travelTo").value && $("f_travelTo").value < $("f_travelFrom").value) { fail("Travel end cannot be before travel start."); return null; }
-      var stage = $("f_stage").value, status = $("f_status").value;
+      // An existing case never changes stage here (that is what "Move to …" is for).
+      var stage = isNew ? $("f_stage").value : c.stage, status = $("f_status").value;
       var stepDate = $("f_stepDate").value || todayStr();
       var received = $("f_stageReceived").value, due = $("f_dueDate").value;
       var net = $("f_network").value;
@@ -1334,14 +1378,9 @@
         if (stage !== start) history.push({ at: received, stage: stage, status: STATUS_BY_STAGE[stage][0], text: sLabel + " received" + (due ? ", respond by " + fmtDate(due) : "") + "." });
         if (status !== STATUS_BY_STAGE[stage][0]) history.push({ at: stepDate, stage: stage, status: status, text: "Case entered as " + label + "." });
         stageLog = [{ stage: stage, received: received, due: due, caseNo: caseNo, amount: amount }];
-      } else if (stage !== c.stage) {
-        // New stage: log its own dates; the previous stage's dates stay in the log.
-        history.push({ at: received, stage: stage, status: STATUS_BY_STAGE[stage][0], text: sLabel + " received" + (due ? ", respond by " + fmtDate(due) : "") + "." });
-        if (status !== STATUS_BY_STAGE[stage][0]) history.push({ at: stepDate, stage: stage, status: status, text: label + "." });
-        stageLog.push({ stage: stage, received: received, due: due, caseNo: caseNo, amount: amount });
       } else {
         if (status !== c.status) history.push({ at: stepDate, stage: stage, status: status, text: label + "." });
-        // Same stage, dates edited: keep the old values in the history.
+        // Dates edited: keep the old values in the history.
         var last = stageLog[stageLog.length - 1];
         if (received !== last.received) history.push({ at: todayStr(), stage: stage, text: sLabel + " received date changed from " + (fmtDate(last.received) || "none") + " to " + fmtDate(received) + "." });
         if (due !== (c.dueDate || "")) history.push({ at: todayStr(), stage: stage, text: "Respond by changed from " + (fmtDate(c.dueDate) || "none") + " to " + (fmtDate(due) || "none") + "." });
@@ -1352,7 +1391,7 @@
         id: c.id || uid(),
         _v: c._v,
         caseNo: caseNo,
-        customer: c.customer || "",
+        customer: c.customer || "",   // kept only so older cases don't lose it
         pnr: $("f_pnr").value.trim().toUpperCase(),
         saleId: $("f_saleId").value.trim(),
         product: $("f_product").value,
@@ -1395,7 +1434,7 @@
       };
     }
 
-        // The next stage's notice arrived: record its case number, dates and amount, and move the case on.
+    // The next stage's notice arrived: record its case number, dates and amount, and move the case on.
     function openMove() {
       if (leaveGuard && leaveGuard.isDirty()) { fail("Save or cancel your changes before moving the case to the next stage."); return; }
       var stages = laterStages(c);
@@ -1417,9 +1456,13 @@
           '<button class="btn primary" type="button" id="e_ok"></button></div></div>';
       document.body.appendChild(m);
 
-      function close() { m.remove(); document.removeEventListener("keydown", key); }
+      function close() {
+        m.remove(); document.removeEventListener("keydown", key);
+        if (state.closeModal === close) state.closeModal = null;
+      }
       function key(e) { if (e.key === "Escape") close(); }
       document.addEventListener("keydown", key);
+      state.closeModal = close;   // leaving the page (browser Back) closes the dialog too
       function labels() {
         var l = stageLabel($("e_stage").value, c.network);
         $("e_recvLabel").textContent = l + " received on";
@@ -1467,7 +1510,7 @@
           toast("Moved to " + lbl + ".");
         }, function (e) {
           if (e && e.status === 409) { close(); showConflict(); }
-          else { $("e_ok").disabled = false; err.textContent = "Could not save. Nothing was changed."; }
+          else { $("e_ok").disabled = false; err.textContent = e && e.status === 401 ? e.message : "Could not save. Nothing was changed."; }
         });
       };
     }
@@ -1485,18 +1528,22 @@
       dlg.close();
     };
     if ($("saveBtn")) $("saveBtn").onclick = function () {
+      if (uploading > 0 || saving) return;
       var rec = collect(); if (!rec) return;
-      $("saveBtn").disabled = true;
+      saving = true; setBusy();
       saveCase(rec).then(function () {
-        removedIds.forEach(dropAsset); addedIds = [];
+        saving = false;
+        // Removed documents keep their stored files (soft delete); only the case's list changes.
+        addedIds = []; removedIds = [];
         leaveGuard = null;
         var outside = !inPeriod(rec);
         if (outside) { state.period = "all"; savePrefs(); }
         dlg.close();
         toast((isNew ? "Case added" : "Changes saved") + (outside ? ". Showing all time." : ""));
       }, function (e) {
-        $("saveBtn").disabled = false;
+        saving = false; setBusy();
         if (e && e.status === 409) showConflict();
+        else if (e && e.status === 401) fail(e.message);
       });
     };
     if ($("delBtn")) $("delBtn").onclick = function () {
@@ -1507,12 +1554,12 @@
         if (leaveGuard) leaveGuard.discard();   // only files uploaded during this visit and never saved
         leaveGuard = null;
         dlg.close(); toast("Case deleted");
-      }, function () {});
+      }, function (e) { if (e && e.status === 401) fail(e.message); });
     };
     if ($("checkedBtn")) $("checkedBtn").onclick = function () {
       var rec = norm(c);
       rec.checkedAt = todayStr();
-      rec.history = (rec.history || []).concat([{ at: todayStr(), text: "Status checked, still waiting." }]);
+      rec.history = (rec.history || []).concat([{ at: todayStr(), stage: rec.stage, text: "Status checked, still waiting." }]);
       $("checkedBtn").disabled = true;
       saveCase(rec).then(function () {
         c = rec;
@@ -1521,13 +1568,14 @@
       }, function (e) {
         $("checkedBtn").disabled = false;
         if (e && e.status === 409) showConflict();
+        else if (e && e.status === 401) fail(e.message);
       });
     };
 
     // Remember how the form looked when opened, so leaving can warn about unsaved changes.
     var snap0 = formSnap();
     leaveGuard = {
-      isDirty: function () { return !ro && (addedIds.length > 0 || removedIds.length > 0 || formSnap() !== snap0); },
+      isDirty: function () { return !ro && (uploading > 0 || addedIds.length > 0 || removedIds.length > 0 || formSnap() !== snap0); },
       discard: function () { addedIds.forEach(dropAsset); addedIds = []; }
     };
     state.openId = isNew ? "new" : c.id;
@@ -1546,7 +1594,7 @@
   }
   function showTab(t) {
     state.tab = t;
-    ["cases", "stats", "tools"].forEach(function (k) {
+    ["cases", "stats"].forEach(function (k) {
       var on = k === t, tab = $("tab_" + k);
       $("pane_" + k).hidden = !on;
       tab.classList.toggle("on", on);
@@ -1574,17 +1622,23 @@
       leaveGuard.discard();   // files uploaded but never saved to the case are removed again
       leaveGuard = null;
     }
+    // Anything floating over the old page goes with it.
+    if (state.openId !== target) {
+      closeViewer();
+      if (state.closeModal) state.closeModal();
+    }
     if (target) {
       if (state.openId !== target) openDialog(target === "new" ? null : target);
       showView("detail");
       return;
     }
+    if (state.openId) pageTok++;   // the case page is gone
     state.openId = null;
     $("detailBody").innerHTML = "";
     state.urgentOnly = h === "#urgent";
     state.checkOnly = h === "#check";
     state.listHash = h;
-    showTab(h === "#stats" ? "stats" : h === "#tools" ? "tools" : "cases");
+    showTab(h === "#stats" ? "stats" : "cases");
     showView("list");
     renderAll();
   }
@@ -1602,9 +1656,9 @@
   }
   function exportCsv() {
     if (!state.downloads) return;
-    var head = ["Case", "Disputed on", "Respond by", "Customer", "PNR", "Sale ID", "Source", "Product", "Travel start", "Travel end", "Order ref", "Transaction date", "Network", "Reason", "Amount", "Currency", "Dispute fees", "Fees charged", "Stage", "Status", "Net loss", "Notes"];
+    var head = ["Case", "Disputed on", "Respond by", "PNR", "Sale ID", "Source", "Product", "Travel start", "Travel end", "Order ref", "Transaction date", "Network", "Reason", "Amount", "Currency", "Dispute fees", "Fees charged", "Stage", "Status", "Net loss", "Notes"];
     var rows = sortCases(state.cases.filter(inPeriod)).map(function (c) {
-      return [c.caseNo, c.disputeDate, c.dueDate, c.customer, c.pnr, c.saleId, c.source, c.product, c.travelFrom, c.travelTo, c.orderRef, c.transactionDate, c.network, c.reason, c.amount, c.currency, c.fee, c.feesCharged ? "yes" : "no", stageLabel(c.stage, c.network), statusLabel(c.status), netLoss(c), c.notes].map(csvCell).join(",");
+      return [c.caseNo, c.disputeDate, c.dueDate, c.pnr, c.saleId, c.source, c.product, c.travelFrom, c.travelTo, c.orderRef, c.transactionDate, c.network, c.reason, c.amount, c.currency, c.fee, c.feesCharged ? "yes" : "no", stageLabel(c.stage, c.network), statusLabel(c.status), netLoss(c), c.notes].map(csvCell).join(",");
     });
     var name = "chargebacks-" + state.period + (state.period === "custom" ? "-" + (state.from || "start") + "-to-" + (state.to || "now") : "") + ".csv";
     // The leading \uFEFF tells Excel the file is UTF-8, so accents and Cyrillic show correctly.
