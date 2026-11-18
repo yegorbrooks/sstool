@@ -1830,13 +1830,14 @@
       a.href = "mailto:" + encodeURIComponent(p.to).replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q.join("&");
       document.body.appendChild(a); a.click(); a.remove();
     };
+        
     $("t_gmail").onclick = function () {
-      var p = parts();
+      var p = parts(), w = 720, h = 760;
+      var left = Math.round(Math.max(0, window.screenX + (window.outerWidth - w) / 2));
+      var top = Math.round(Math.max(0, window.screenY + (window.outerHeight - h) / 2));
       window.open("https://mail.google.com/mail/?view=cm&fs=1&to=" + encodeURIComponent(p.to) + "&cc=" + encodeURIComponent(p.cc) +
-        "&su=" + encodeURIComponent(p.su) + "&body=" + encodeURIComponent(p.body), "_blank", "noopener");
-    };
-    $("t_copy").onclick = function () {
-      navigator.clipboard.writeText($("t_body").value).then(function () { toast("Message copied."); }, function () { toast("Could not copy."); });
+        "&su=" + encodeURIComponent(p.su) + "&body=" + encodeURIComponent(p.body),
+        "_blank", "noopener,popup,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top);
     };
   }
 
