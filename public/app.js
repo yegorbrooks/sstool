@@ -1763,7 +1763,7 @@
   }
   function mailList(s) { return String(s || "").split(/[,;\s]+/).filter(Boolean).join(","); }
 
-  function renderTools() {
+    function renderTools() {
     $("pane_tools").innerHTML =
       '<div class="dlg tool"><h3>Email templates</h3><div class="grid">' +
         '<label class="f">Find case<input id="t_find" type="search" autocomplete="off" placeholder="Sale ID, PNR or case no."></label>' +
@@ -1775,11 +1775,11 @@
         '<label class="f full">Cc<input id="t_cc" autocomplete="off"></label>' +
         '<label class="f full">Subject<input id="t_subject" autocomplete="off"></label>' +
         '<label class="f full">Message<textarea id="t_body"></textarea></label>' +
+        '<label class="f full">Signature<textarea id="t_sig"></textarea></label>' +
       "</div>" +
       '<div class="dlg-actions"><span class="spacer"></span>' +
         '<button class="btn" type="button" id="t_copy">Copy message</button>' +
-        '<button class="btn" type="button" id="t_gmail">Open in Gmail</button>' +
-        '<button class="btn primary" type="button" id="t_open">Open in email app</button>' +
+        '<button class="btn primary" type="button" id="t_gmail">Open in Gmail</button>' +
       "</div></div>";
 
     function regen() {
@@ -1808,11 +1808,14 @@
       }).join("");
     }
     function parts() {
-      return { to: mailList($("t_to").value), cc: mailList($("t_cc").value), su: $("t_subject").value, body: $("t_body").value };
+      var sig = $("t_sig").value.trim();
+      return { to: mailList($("t_to").value), cc: mailList($("t_cc").value), su: $("t_subject").value,
+        body: $("t_body").value.replace(/\s+$/, "") + (sig ? "\n\n" + sig : "") };
     }
 
     $("t_to").value = tool.to;
     $("t_cc").value = EMAIL_CC;
+    $("t_sig").value = lsGet("chargebacks:signature:v1") || "";
     $("t_tpl").value = tool.tpl;
     fillCases();
     regen();
@@ -1821,16 +1824,10 @@
     $("t_case").onchange = function () { pickCase(this.value); };
     $("t_tpl").onchange = function () { tool.tpl = this.value; regen(); };
     $("t_to").oninput = function () { tool.to = this.value; };
-    $("t_open").onclick = function () {
-      var p = parts(), q = [];
-      if (p.cc) q.push("cc=" + encodeURIComponent(p.cc));
-      q.push("subject=" + encodeURIComponent(p.su));
-      q.push("body=" + encodeURIComponent(p.body.replace(/\r?\n/g, "\r\n")));
-      var a = document.createElement("a");
-      a.href = "mailto:" + encodeURIComponent(p.to).replace(/%40/g, "@").replace(/%2C/g, ",") + "?" + q.join("&");
-      document.body.appendChild(a); a.click(); a.remove();
+    $("t_sig").oninput = function () { lsSet("chargebacks:signature:v1", this.value); };
+    $("t_copy").onclick = function () {
+      navigator.clipboard.writeText(parts().body).then(function () { toast("Message copied."); }, function () { toast("Could not copy."); });
     };
-        
     $("t_gmail").onclick = function () {
       var p = parts(), w = 720, h = 760;
       var left = Math.round(Math.max(0, window.screenX + (window.outerWidth - w) / 2));
