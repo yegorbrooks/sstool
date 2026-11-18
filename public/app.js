@@ -1823,17 +1823,20 @@
     $("t_copy").onclick = function () {
       navigator.clipboard.writeText(parts().body).then(function () { toast("Message copied."); }, function () { toast("Could not copy."); });
     };
-        $("t_gmail").onclick = function () {
+      $("t_gmail").onclick = function () {
       var p = parts(), w = 720, h = 760;
       var left = Math.round(Math.max(0, window.screenX + (window.outerWidth - w) / 2));
       var top = Math.round(Math.max(0, window.screenY + (window.outerHeight - h) / 2));
-      // The message goes on the clipboard instead of into the link, so Gmail adds your own signature.
+      var url = "https://mail.google.com/mail/?view=cm&fs=1&to=" + encodeURIComponent(p.to) + "&cc=" + encodeURIComponent(p.cc) +
+        "&su=" + encodeURIComponent(p.su);
+      var feat = "noopener,popup,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top;
+      // Copy first, open Gmail after: the browser only lets the tracker copy while it still has focus.
       navigator.clipboard.writeText(p.body).then(function () {
+        window.open(url, "_blank", feat);
         toast("Message copied. Click in the Gmail message and press Ctrl+V to paste it.", 6000);
-      }, function () { toast("Could not copy the message. Use Copy message, then paste it in Gmail.", 6000); });
-      window.open("https://mail.google.com/mail/?view=cm&fs=1&to=" + encodeURIComponent(p.to) + "&cc=" + encodeURIComponent(p.cc) +
-        "&su=" + encodeURIComponent(p.su),
-        "_blank", "noopener,popup,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top);
+      }, function () {
+        toast("Could not copy the message. Use Copy message, then paste it in Gmail.", 6000);
+      });
     };
   }
 
