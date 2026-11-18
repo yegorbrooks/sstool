@@ -1775,7 +1775,6 @@
         '<label class="f full">Cc<input id="t_cc" autocomplete="off"></label>' +
         '<label class="f full">Subject<input id="t_subject" autocomplete="off"></label>' +
         '<label class="f full">Message<textarea id="t_body"></textarea></label>' +
-        '<label class="f full">Signature<textarea id="t_sig"></textarea></label>' +
       "</div>" +
       '<div class="dlg-actions"><span class="spacer"></span>' +
         '<button class="btn" type="button" id="t_copy">Copy message</button>' +
@@ -1807,15 +1806,12 @@
         return '<option value="' + esc(c.id) + '"' + (c.id === tool.caseId ? " selected" : "") + ">" + esc(caseOptLabel(c)) + "</option>";
       }).join("");
     }
-    function parts() {
-      var sig = $("t_sig").value.trim();
-      return { to: mailList($("t_to").value), cc: mailList($("t_cc").value), su: $("t_subject").value,
-        body: $("t_body").value.replace(/\s+$/, "") + (sig ? "\n\n" + sig : "") };
+        function parts() {
+      return { to: mailList($("t_to").value), cc: mailList($("t_cc").value), su: $("t_subject").value, body: $("t_body").value.replace(/\s+$/, "") };
     }
 
     $("t_to").value = tool.to;
     $("t_cc").value = EMAIL_CC;
-    $("t_sig").value = lsGet("chargebacks:signature:v1") || "";
     $("t_tpl").value = tool.tpl;
     fillCases();
     regen();
@@ -1824,16 +1820,19 @@
     $("t_case").onchange = function () { pickCase(this.value); };
     $("t_tpl").onchange = function () { tool.tpl = this.value; regen(); };
     $("t_to").oninput = function () { tool.to = this.value; };
-    $("t_sig").oninput = function () { lsSet("chargebacks:signature:v1", this.value); };
     $("t_copy").onclick = function () {
       navigator.clipboard.writeText(parts().body).then(function () { toast("Message copied."); }, function () { toast("Could not copy."); });
     };
-    $("t_gmail").onclick = function () {
+        $("t_gmail").onclick = function () {
       var p = parts(), w = 720, h = 760;
       var left = Math.round(Math.max(0, window.screenX + (window.outerWidth - w) / 2));
       var top = Math.round(Math.max(0, window.screenY + (window.outerHeight - h) / 2));
+      // The message goes on the clipboard instead of into the link, so Gmail adds your own signature.
+      navigator.clipboard.writeText(p.body).then(function () {
+        toast("Message copied. Click in the Gmail message and press Ctrl+V to paste it.", 6000);
+      }, function () { toast("Could not copy the message. Use Copy message, then paste it in Gmail.", 6000); });
       window.open("https://mail.google.com/mail/?view=cm&fs=1&to=" + encodeURIComponent(p.to) + "&cc=" + encodeURIComponent(p.cc) +
-        "&su=" + encodeURIComponent(p.su) + "&body=" + encodeURIComponent(p.body),
+        "&su=" + encodeURIComponent(p.su),
         "_blank", "noopener,popup,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top);
     };
   }
