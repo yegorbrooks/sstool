@@ -373,3 +373,8 @@ label.f .invalid { border-color: var(--loss); box-shadow: 0 0 0 1px var(--loss);
 .modalbox h3 { margin: 0 0 6px; font-size: 18px; }
 .modalbox > p { margin: 0 0 16px; font-size: 13.5px; }
 .grid .btn.full { width: 100%; }
+
+/* tools: email templates */
+.tool { max-width: 880px; }
+.tool h3 { margin: 0 0 16px; font-size: 17px; font-weight: 700; }
+.tool #t_body { min-height: 320px; line-height: 1.5; }
