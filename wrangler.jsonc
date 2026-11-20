@@ -1,5 +1,5 @@
 {
-  "name": "chargeback-tracker",
+  "name": "sstool",
   "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
   // Branch and version preview links are not covered by Cloudflare Access, so they are switched off.
