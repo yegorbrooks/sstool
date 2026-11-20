@@ -1,8 +1,20 @@
 /* =====================================================================
    Chargeback Tracker – styles
+
+   1. Tokens (colours, light and dark)
+   2. Base
+   3. Header, tabs and signed-in account
+   4. Controls and buttons
+   5. Alerts and toast
+   6. Case list and tables
+   7. Statistics
+   8. Case page (form, stage dates, documents, move dialog)
+   9. Document viewer
+  10. Tools: email templates
+  11. Responsive
    ===================================================================== */
 
-/* ---------- tokens ---------- */
+/* ---------- 1. tokens ---------- */
 :root {
   --bg: #f5f3f0;
   --surface: #ffffff;
@@ -54,7 +66,7 @@
   --c5: #ff8fa3; --c6: #7fb6d0; --c7: #c2a5d6; --c8: #85908a;
 }
 
-/* ---------- base ---------- */
+/* ---------- 2. base ---------- */
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
@@ -72,7 +84,7 @@ optgroup { font-weight: 700; }
 .muted { color: var(--ink-3); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-/* ---------- header and tabs ---------- */
+/* ---------- 3. header, tabs and signed-in account ---------- */
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; justify-content: space-between; margin-bottom: 28px; }
 .top h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; color: var(--accent); }
 .tabs { display: flex; gap: 4px; margin-right: auto; margin-left: 12px; }
@@ -82,8 +94,12 @@ optgroup { font-weight: 700; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .stats-controls { margin-bottom: 20px; }
 .range { display: flex; align-items: center; gap: 6px; }
+.whoami { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); }
+.whoami[hidden] { display: none; }
+.whoami a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.whoami a:hover { text-decoration: underline; }
 
-/* ---------- controls and buttons ---------- */
+/* ---------- 4. controls and buttons ---------- */
 .field-sm {
   height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--surface); cursor: pointer;
@@ -103,7 +119,7 @@ optgroup { font-weight: 700; }
 a.crm { color: var(--ink); font-weight: 500; text-decoration: underline; }
 a.crm:hover { color: var(--accent); }
 
-/* ---------- alerts and toast ---------- */
+/* ---------- 5. alerts and toast ---------- */
 .alert {
   display: flex; gap: 10px; align-items: center; padding: 10px 14px; margin-bottom: 20px;
   border-radius: 8px; background: var(--wait-bg); color: var(--wait); font-weight: 500;
@@ -116,7 +132,7 @@ a.crm:hover { color: var(--accent); }
   max-width: calc(100vw - 32px);
 }
 
-/* ---------- case list ---------- */
+/* ---------- 6. case list and tables ---------- */
 .list-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .list-head h2 { margin: 0; font-size: 17px; font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .clearfilter { margin-left: 8px; font-size: 14px; }
@@ -134,7 +150,6 @@ a.crm:hover { color: var(--accent); }
 .empty { padding: 44px 20px; text-align: center; color: var(--ink-2); }
 .empty p { margin: 0 0 14px; }
 
-/* ---------- tables ---------- */
 .tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--shadow); }
 table { width: 100%; border-collapse: collapse; min-width: 720px; }
 th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
@@ -191,7 +206,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .notetip .nt-meta { margin-top: 6px; font-size: 12px; opacity: .7; white-space: normal; }
 
-/* ---------- statistics ---------- */
+/* ---------- 7. statistics ---------- */
 .stats { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 24px; align-items: stretch; margin-bottom: 20px; }
 
 /* numbers card */
@@ -260,7 +275,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .pt.on, .bar:hover .pt { opacity: 1; }
 .bar:hover .pt { width: 12px; height: 12px; }
 
-/* ---------- case page ---------- */
+/* ---------- 8. case page ---------- */
 .detail .back { margin-bottom: 16px; }
 .case-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 16px; }
 .case-head h3 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; }
@@ -276,6 +291,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
 .grid.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid .full { grid-column: 1 / -1; }
+.grid .btn.full { width: 100%; }
 label.f { display: block; font-size: 13px; color: var(--ink-2); font-weight: 500; }
 label.f input, label.f select, label.f textarea {
   display: block; width: 100%; margin-top: 4px; padding: 8px 10px; min-height: 38px;
@@ -298,6 +314,7 @@ label.f .invalid { border-color: var(--loss); box-shadow: 0 0 0 1px var(--loss);
 .timeline { list-style: none; margin: 18px 0 0; padding: 0; }
 .timeline li { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-2); font-size: 14px; }
 .timeline .when { color: var(--ink-3); }
+.timeline .by { white-space: nowrap; }
 
 /* documents */
 .docadd { display: flex; gap: 10px; align-items: end; margin-bottom: 12px; }
@@ -308,7 +325,17 @@ label.f .invalid { border-color: var(--loss); box-shadow: 0 0 0 1px var(--loss);
 .doclist .dact { display: flex; gap: 8px; flex-shrink: 0; }
 .doclist .btn { height: 32px; padding: 0 12px; }
 
-/* document viewer */
+/* "move to next stage" dialog */
+.modal {
+  position: fixed; inset: 0; z-index: 90; background: rgba(20, 24, 22, .45);
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.modalbox { width: 100%; max-width: 520px; max-height: 100%; overflow: auto; }
+.modalbox h3 { margin: 0 0 6px; font-size: 18px; }
+.modalbox > p { margin: 0 0 16px; font-size: 13.5px; }
+
+/* ---------- 9. document viewer ---------- */
 .viewer {
   position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column;
   padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -324,7 +351,12 @@ label.f .invalid { border-color: var(--loss); box-shadow: 0 0 0 1px var(--loss);
   font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; background: var(--surface); padding: 16px; border-radius: 8px;
 }
 
-/* ---------- responsive ---------- */
+/* ---------- 10. tools: email templates ---------- */
+.tool { max-width: 880px; }
+.tool h3 { margin: 0 0 16px; font-size: 17px; font-weight: 700; }
+.tool #t_body { min-height: 320px; line-height: 1.5; }
+
+/* ---------- 11. responsive ---------- */
 @media (min-width: 1750px) {
   .chartbody { grid-template-columns: 120px minmax(0, 1fr); }
   .chartbody svg { max-width: none; margin: 0; }
@@ -355,26 +387,3 @@ label.f .invalid { border-color: var(--loss); box-shadow: 0 0 0 1px var(--loss);
   .doclist li { flex-direction: column; align-items: stretch; }
   .doclist .dact { justify-content: flex-end; }
 }
-
-/* signed-in account + authors */
-.whoami { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); }
-.whoami[hidden] { display: none; }
-.whoami a { color: var(--accent); font-weight: 600; text-decoration: none; }
-.whoami a:hover { text-decoration: underline; }
-.timeline .by { white-space: nowrap; }
-
-/* move to next stage dialog */
-.modal {
-  position: fixed; inset: 0; z-index: 90; background: rgba(20, 24, 22, .45);
-  display: flex; align-items: center; justify-content: center;
-  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
-}
-.modalbox { width: 100%; max-width: 520px; max-height: 100%; overflow: auto; }
-.modalbox h3 { margin: 0 0 6px; font-size: 18px; }
-.modalbox > p { margin: 0 0 16px; font-size: 13.5px; }
-.grid .btn.full { width: 100%; }
-
-/* tools: email templates */
-.tool { max-width: 880px; }
-.tool h3 { margin: 0 0 16px; font-size: 17px; font-weight: 700; }
-.tool #t_body { min-height: 320px; line-height: 1.5; }
