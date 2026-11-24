@@ -220,7 +220,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .statnote { margin: 0; max-width: 320px; font-size: 12.5px; text-align: center; }
 
 /* chart cards */
-.charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto 1fr; gap: 16px; }
+.charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto auto 1fr; gap: 16px; }
 .chartcard {
   display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; padding: 16px; box-shadow: var(--shadow);

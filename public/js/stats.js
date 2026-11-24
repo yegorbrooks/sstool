@@ -43,10 +43,15 @@ export function renderStats() {
       '<li><span class="cl">Credited back, still at risk</span><span class="cp wait">' + esc(money(s.atRisk)) + "</span></li>" +
       (s.inqOpen ? '<li title="Inquiries are not debited, so they are left out of all amounts."><span class="cl">Open inquiries, no debit</span><span class="cp">' + esc(plural(s.inqOpen, "case", "cases")) + "</span></li>" : "") +
     "</ul>" + note + "</div>";
+
+  // Stage moves are dated by when the new stage arrived, not the dispute date,
+  // so they use every case in this currency and filter by period themselves.
+  var cur = state.cases.filter(function (c) { return c.currency === state.currency; });
   var charts = '<div class="charts">' +
     winCard(s) +
     chartCard("Dispute reasons", inP, function (c) { return c.reason; }) +
     chartCard("Products", inP, function (c) { return c.product; }) +
+    movesCard(cur) +
     trendCards(inP) +
   "</div>";
 
@@ -119,6 +124,58 @@ function chartCard(title, list, keyFn) {
   }
   return donutCard(title, segs, total, String(total), total === 1 ? "case" : "cases");
 }
+
+/* ---------- stage moves ---------- */
+var MOVES = [
+  ["inquiry", "first", "Inquiry \u2192 Chargeback", "inquiries"],
+  ["first", "prearb", "Chargeback \u2192 Pre-arb", "chargebacks"],
+  ["prearb", "arb", "Pre-arb \u2192 Arbitration", "pre-arbs"]
+];
+// The stages a case went through, each dated by when its notice arrived.
+function stagePath(c) {
+  var path = (c.stageLog || []).map(function (s) {
+    return { stage: s.stage, at: s.received || "", amount: s.amount != null && s.amount !== "" ? num(s.amount) : num(c.amount) };
+  });
+  // A case added straight at a later stage: its starting stage is only in the history.
+  var h0 = (c.history || [])[0];
+  if (h0 && h0.stage && path.length && h0.stage !== path[0].stage) {
+    path.unshift({ stage: h0.stage, at: h0.at || "", amount: path[0].amount });
+  }
+  return path;
+}
+function inRange(d) {
+  var r = periodRange();
+  if (!d) return !r.from && !r.to;
+  if (r.from && d < r.from) return false;
+  if (r.to && d > r.to) return false;
+  return true;
+}
+function movesCard(list) {
+  var rows = MOVES.map(function (m) { return { from: m[0], to: m[1], label: m[2], noun: m[3], n: 0, amt: 0, base: 0, on: 0 }; });
+  list.forEach(function (c) {
+    var p = stagePath(c);
+    p.forEach(function (s, i) {
+      rows.forEach(function (r) {
+        // Reached the earlier stage in this period: did it move on later?
+        if (s.stage === r.from && inRange(s.at)) { r.base++; if (i < p.length - 1) r.on++; }
+        // Moved into this stage in this period.
+        if (i > 0 && s.stage === r.to && inRange(s.at)) { r.n++; r.amt += s.amount; }
+      });
+    });
+  });
+  return '<div class="chartcard movecard"><h3>Moved to next stage, ' + esc(periodText()) + '</h3><div class="moves">' +
+    rows.map(function (r) {
+      var pct = r.base ? Math.round(r.on / r.base * 100) : null;
+      return '<div class="move"><div class="mv-label">' + esc(r.label) + "</div>" +
+        '<div class="mv-n">' + r.n + "</div>" +
+        '<div class="mv-amt">' + esc(money(r.amt)) + "</div>" +
+        (pct === null ? "" : '<div class="muted mv-rate" title="' +
+          esc(r.on + " of " + r.base + " " + r.noun + " received " + periodText() + " moved to the next stage") + '">' +
+          pct + "% of " + esc(r.noun) + " moved on</div>") +
+      "</div>";
+    }).join("") + "</div></div>";
+}
+
 function winCard(s) {
   if (!s.decided) return emptyCard("Win rate", "No closed cases yet.");
   var segs = [{ label: "Won", n: s.wonCount, color: "var(--win)" }];
