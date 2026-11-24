@@ -355,6 +355,15 @@ label.f .invalid { border-color: var(--loss); box-shadow: 0 0 0 1px var(--loss);
 .tool { max-width: 880px; }
 .tool h3 { margin: 0 0 16px; font-size: 17px; font-weight: 700; }
 .tool #t_body { min-height: 320px; line-height: 1.5; }
+/* stage moves */
+.movecard { grid-column: 1 / -1; }
+.moves { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.move { padding: 12px 14px; border-radius: 8px; background: var(--neutral-bg); }
+.mv-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.mv-n { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px; }
+.mv-amt { font-weight: 600; }
+.mv-rate { font-size: 12.5px; margin-top: 4px; }
+@media (max-width: 700px) { .moves { grid-template-columns: 1fr; } }
 
 /* ---------- 11. responsive ---------- */
 @media (min-width: 1750px) {
