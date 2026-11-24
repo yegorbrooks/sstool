@@ -191,6 +191,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .pill.act, .pill.lost { background: var(--loss-bg); color: var(--loss); }
 .pill.review { background: var(--wait-bg); color: var(--wait); }
 .pill.won { background: var(--win-bg); color: var(--win); }
+.pill.closed { background: var(--neutral-bg); color: var(--ink-2); }
 
 /* note icon at the end of the status cell, and the note shown on hover */
 .noteicon {

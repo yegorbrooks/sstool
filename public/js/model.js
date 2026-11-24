@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    Model: every case has a STAGE and a STATUS within that stage.
 
-     Inquiry (RFI)      Pending / Defended / Won / Lost / Accepted
+     Inquiry (RFI)      Pending / Responded
      First chargeback   Pending / Defended / Won / Lost / Accepted
      Pre-arbitration    Pending / Defended / Won / Lost / Accepted
      Arbitration        Defended / Won / Lost
@@ -46,17 +46,20 @@ export function pastCaseNos(c) {
 }
 
 export var STATUSES = {
-  pending:  { label: "Pending",  kind: "act" },
-  defended: { label: "Defended", kind: "review" },
-  won:      { label: "Won",      kind: "won" },
-  lost:     { label: "Lost",     kind: "lost" },
-  accepted: { label: "Accepted", kind: "lost" }
+  pending:   { label: "Pending",   kind: "act" },
+  defended:  { label: "Defended",  kind: "review" },
+  responded: { label: "Responded", kind: "closed" },
+  won:       { label: "Won",       kind: "won" },
+  lost:      { label: "Lost",      kind: "lost" },
+  accepted:  { label: "Accepted",  kind: "lost" }
 };
-export var STATUS_ORDER = ["pending", "defended", "won", "lost", "accepted"];
+export var STATUS_ORDER = ["pending", "defended", "responded", "won", "lost", "accepted"];
+
+var DISPUTE_STATUSES = ["pending", "defended", "won", "lost", "accepted"];
 export var STATUS_BY_STAGE = {
-  inquiry: STATUS_ORDER,
-  first: STATUS_ORDER,
-  prearb: STATUS_ORDER,
+  inquiry: ["pending", "responded"],
+  first: DISPUTE_STATUSES,
+  prearb: DISPUTE_STATUSES,
   arb: ["defended", "won", "lost"]
 };
 
@@ -105,6 +108,7 @@ export function norm(c) {
   var o = {};
   Object.keys(c || {}).forEach(function (k) { o[k] = c[k]; });
   if (STAGES[o.stage] && STATUSES[o.status]) {
+    if (o.stage === "inquiry" && o.status !== "pending") o.status = "responded";
     if (STATUS_BY_STAGE[o.stage].indexOf(o.status) < 0) o.status = STATUS_BY_STAGE[o.stage][0];
   } else {
     var legacyLostFee = (o.status === "lost" || o.status === "accepted") && num(o.fee) > 0;
@@ -137,7 +141,7 @@ export function norm(c) {
 /* ---------- reminders and deadlines ---------- */
 // Follow-up after we defend: check the case 45 days after the First chargeback's
 // Respond by date, 15 days after Pre-arbitration's. Arbitration: no reminder.
-var FOLLOW_UP_DAYS = { inquiry: 45, first: 45, prearb: 15 };
+var FOLLOW_UP_DAYS = {first: 45, prearb: 15 };
 export function followUpDays(c) { return FOLLOW_UP_DAYS[c.stage] || 0; }
 function respondedOn(c) {
   if (c.status !== "defended" || !followUpDays(c)) return "";

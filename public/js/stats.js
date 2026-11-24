@@ -13,7 +13,7 @@ function computeStats(list) {
     if (c.status === "won") { s.wonCount++; s.decided++; }
     else if (c.status === "lost" || c.status === "accepted") { s.lostCount++; s.decided++; }
     // Inquiries have no financial impact: keep them out of every amount.
-    if (isInquiry(c)) { if (c.status === "pending" || c.status === "defended") s.inqOpen++; return; }
+    if (isInquiry(c)) { if (c.status === "pending") s.inqOpen++; return; }
     s.disputed += a;
     if (c.status === "won") s.won += a;
     else if (isClosedLoss(c)) { s.lostAmt += a; s.fees += feeIn(c); }
