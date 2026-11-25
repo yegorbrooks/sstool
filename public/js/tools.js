@@ -9,7 +9,7 @@ var EMAIL_TEMPLATES = [
   { id: "received", label: "Chargeback received",
     subject: "Chargeback Received Sale ID: {saleId}",
     body: "Dear All,\n\nWe have received a chargeback for Sale ID: {saleId}\nAmount: {amount}\nProduct: {product}\nCB Reason: {reason}\n\n" +
-          "Please provide:\n- Ticket Receipt Email\n- Any email communication with the client\n\nThank you." },
+          "Please provide:\n- Ticket Receipt Email\n- Any email communication with the client\nP.S. for emails with the client please use the Forward function in your gmail, and send it to special-services@flyluxury.com with Sale ID in the subject\n\nThank you." },
   { id: "won", label: "Chargeback closed, won",
     subject: "Chargeback Closed (Won) Sale ID: {saleId}",
     body: "Dear All,\n\nThe chargeback for Sale ID: {saleId} has been closed in our favour.\nAmount: {amount}\nProduct: {product}\nCB Reason: {reason}\n\n" +
